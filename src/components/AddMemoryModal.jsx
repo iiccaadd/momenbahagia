@@ -20,6 +20,7 @@ import TemplateSelector from './TemplateSelector';
 import PhotoCaptureStep from './PhotoCaptureStep';
 import { renderPhotostrip } from '../utils/canvasExport';
 import { useNotify } from '../context/NotificationContext';
+import { saveMemoryOnline } from '../services/cloudSync';
 
 export default function AddMemoryModal({
   isOpen,
@@ -160,59 +161,27 @@ export default function AddMemoryModal({
     setIsSubmitting(true);
 
     try {
-      const formData = new FormData();
-      formData.append('guestName', guestName.trim() || 'Tamu Spesial');
-      formData.append('guestMessage', guestMessage.trim() || '');
-      formData.append('templateId', selectedTemplate?.id || 'classic');
-      formData.append('stripDataUrl', generatedStripUrl);
-      formData.append('stripBase64', generatedStripUrl);
+      const memoryData = {
+        id: `mem-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+        guestName: guestName.trim() || 'Tamu Spesial',
+        guestMessage: guestMessage.trim() || '',
+        stripUrl: generatedStripUrl,
+        rawPhotos: photos.filter(Boolean),
+        templateId: selectedTemplate?.id || 'classic',
+        audioUrl: audioData?.dataUrl || null,
+        audioDuration: audioData?.duration || 0,
+        createdAt: new Date().toISOString(),
+        likesCount: 1,
+        likedIps: [],
+        isPinned: false
+      };
 
-      if (audioData?.blob) {
-        formData.append('audio', audioData.blob, 'voicenote.webm');
-        formData.append('audioDuration', audioData.duration || 0);
-      }
+      // 1. Immediately save to IndexedDB & broadcast online
+      await saveMemoryOnline(memoryData);
 
-      let memoryData = null;
-      try {
-        const res = await fetch('/api/memories', {
-          method: 'POST',
-          body: formData,
-        });
-        if (res.ok) {
-          const json = await res.json();
-          if (json.success && json.data) {
-            memoryData = json.data;
-          }
-        }
-      } catch (err) {
-        console.warn('Backend API unavailable, saving to local standalone memory:', err);
-      }
-
-      // Standalone fallback if server response was not available
-      if (!memoryData) {
-        memoryData = {
-          id: `mem-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
-          guestName: guestName.trim() || 'Tamu Spesial',
-          guestMessage: guestMessage.trim() || '',
-          stripUrl: generatedStripUrl,
-          rawPhotos: photos.filter(Boolean),
-          templateId: selectedTemplate?.id || 'classic',
-          audioUrl: audioData?.dataUrl || null,
-          audioDuration: audioData?.duration || 0,
-          createdAt: new Date().toISOString(),
-          likesCount: 1,
-          isPinned: false
-        };
-
-      }
-
-      // Always persist to localStorage
-      try {
-        const existing = JSON.parse(localStorage.getItem('wedding_memories') || '[]');
-        const updated = [memoryData, ...existing.filter(m => m.id !== memoryData.id)];
-        localStorage.setItem('wedding_memories', JSON.stringify(updated));
-      } catch (e) {
-        console.warn('LocalStorage save error:', e);
+      // 2. Notify parent state
+      if (onMemorySubmitted) {
+        onMemorySubmitted(memoryData);
       }
 
       setIsSuccess(true);
@@ -223,9 +192,8 @@ export default function AddMemoryModal({
       });
 
       setTimeout(() => {
-        if (onMemorySubmitted) onMemorySubmitted(memoryData);
         onClose();
-      }, 2200);
+      }, 2000);
     } catch (err) {
       console.error('Submit memory error:', err);
       notify.error('Terjadi kendala saat memproses kenangan Anda. Silakan coba beberapa saat lagi.', 'Gagal Mengirim');

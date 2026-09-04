@@ -219,7 +219,7 @@ export async function renderPhotostrip({
     }
   }
 
-  return canvas.toDataURL('image/png', 0.95);
+  return canvas.toDataURL('image/jpeg', 0.88);
 }
 
 function applyFilter(ctx, filter) {

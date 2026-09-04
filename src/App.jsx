@@ -4,7 +4,14 @@ import GuestLanding from './components/GuestLanding';
 import AdminPanel from './components/AdminPanel';
 import ProjectorView from './components/ProjectorView';
 import { defaultWeddingData } from './defaultData';
-import { fetchOnlineMemories, saveMemoryOnline, toggleLikeOnline } from './services/cloudSync';
+import {
+  fetchOnlineMemories,
+  saveMemoryOnline,
+  toggleLikeOnline,
+  mergeMemories,
+  onMemoryBroadcast
+} from './services/cloudSync';
+import { deleteMemoryDB } from './services/dbStorage';
 
 export default function App() {
   const [currentView, setCurrentView] = useState('guest'); // 'guest', 'admin', 'projector'
@@ -40,21 +47,20 @@ export default function App() {
     return defaultWeddingData.memories;
   });
 
-  const [latestMemory, setLatestMemory] = useState(null);
-  const [isConnected, setIsConnected] = useState(true);
-
-  // Track liked memories for single love / unlove functionality
   const [likedMemoryIds, setLikedMemoryIds] = useState(() => {
     try {
       const local = localStorage.getItem('user_liked_memories');
       if (local) return JSON.parse(local);
     } catch (e) {
-      console.warn('Failed reading user_liked_memories', e);
+      console.warn('Failed reading liked memories', e);
     }
     return [];
   });
 
-  // Sync with URL Hash or path for direct routing (e.g. /#admin or /#projector)
+  const [latestMemory, setLatestMemory] = useState(null);
+  const [isConnected, setIsConnected] = useState(true);
+
+  // Sync route on hash change
   useEffect(() => {
     const handleHash = () => {
       const hash = window.location.hash.replace('#', '');
@@ -73,16 +79,16 @@ export default function App() {
     setCurrentView(view);
   };
 
-  // 1. Online Real-time Cloud Sync & Polling Engine
+  // 1. Persistent Storage & Cloud Sync Engine
   useEffect(() => {
     const syncData = async () => {
       try {
         const cloudMems = await fetchOnlineMemories();
         if (Array.isArray(cloudMems) && cloudMems.length > 0) {
           setMemories((prev) => {
-            // Check if there are changes before triggering re-render
-            if (JSON.stringify(prev) !== JSON.stringify(cloudMems)) {
-              return cloudMems;
+            const merged = mergeMemories(prev, cloudMems);
+            if (JSON.stringify(prev) !== JSON.stringify(merged)) {
+              return merged;
             }
             return prev;
           });
@@ -93,11 +99,11 @@ export default function App() {
       }
     };
 
-    // Initial sync immediately
+    // Initial load immediately from IndexedDB & Cloud
     syncData();
 
-    // Background interval sync every 4 seconds for live cross-device updates
-    const interval = setInterval(syncData, 4000);
+    // Polling interval (every 8 seconds)
+    const interval = setInterval(syncData, 8000);
 
     // Sync on window focus / tab visibility change
     const onVisibilityChange = () => {
@@ -109,10 +115,21 @@ export default function App() {
     window.addEventListener('visibilitychange', onVisibilityChange);
     window.addEventListener('focus', syncData);
 
+    // Tab-to-Tab instant synchronization via BroadcastChannel
+    const unsubscribeBroadcast = onMemoryBroadcast((data) => {
+      if (data?.type === 'MEMORY_SAVED' && data.memory) {
+        setLatestMemory(data.memory);
+        setMemories((prev) => mergeMemories(prev, [data.memory]));
+      } else if (data?.type === 'MEMORY_DELETED' && data.id) {
+        setMemories((prev) => prev.filter((m) => m.id !== data.id));
+      }
+    });
+
     return () => {
       clearInterval(interval);
       window.removeEventListener('visibilitychange', onVisibilityChange);
       window.removeEventListener('focus', syncData);
+      unsubscribeBroadcast();
     };
   }, []);
 
@@ -123,19 +140,12 @@ export default function App() {
 
     const onMemoryNew = (newMem) => {
       setLatestMemory(newMem);
-      setMemories((prev) => {
-        const exists = prev.some((m) => m.id === newMem.id);
-        const updated = exists ? prev.map((m) => (m.id === newMem.id ? newMem : m)) : [newMem, ...prev];
-        try { localStorage.setItem('wedding_memories', JSON.stringify(updated)); } catch (e) {}
-        return updated;
-      });
+      setMemories((prev) => mergeMemories(prev, [newMem]));
     };
 
     const onMemoryLiked = ({ id, likesCount }) => {
       setMemories((prev) => {
-        const updated = prev.map((m) => (m.id === id ? { ...m, likesCount } : m));
-        try { localStorage.setItem('wedding_memories', JSON.stringify(updated)); } catch (e) {}
-        return updated;
+        return prev.map((m) => (m.id === id ? { ...m, likesCount } : m));
       });
     };
 
@@ -156,16 +166,9 @@ export default function App() {
   const handleAddNewMemory = async (newMem) => {
     if (!newMem) return;
     setLatestMemory(newMem);
-    setMemories((prev) => {
-      const exists = prev.some((m) => m.id === newMem.id);
-      const updated = exists ? prev.map((m) => (m.id === newMem.id ? newMem : m)) : [newMem, ...prev];
-      try {
-        localStorage.setItem('wedding_memories', JSON.stringify(updated));
-      } catch (e) {}
-      return updated;
-    });
+    setMemories((prev) => mergeMemories(prev, [newMem]));
 
-    // Save to global cloud database so all other devices see it
+    // Save to IndexedDB and push to cloud
     await saveMemoryOnline(newMem);
   };
 
@@ -183,7 +186,7 @@ export default function App() {
 
     // Optimistic UI update
     setMemories((prev) => {
-      const updated = prev.map((m) => {
+      return prev.map((m) => {
         if (m.id === id) {
           const delta = isAlreadyLiked ? -1 : 1;
           const count = Math.max(0, (m.likesCount || 0) + delta);
@@ -191,27 +194,15 @@ export default function App() {
         }
         return m;
       });
-      try {
-        localStorage.setItem('wedding_memories', JSON.stringify(updated));
-      } catch (e) {}
-      return updated;
     });
 
-    // Sync like to cloud database
+    // Sync like to IndexedDB and cloud
     await toggleLikeOnline(id, !isAlreadyLiked);
-
-    try {
-      await fetch(`/api/memories/${id}/like`, { method: 'POST' });
-    } catch (err) {}
   };
 
   const handleDeleteMemory = async (id) => {
-    setMemories((prev) => {
-      const updated = prev.filter((m) => m.id !== id);
-      try { localStorage.setItem('wedding_memories', JSON.stringify(updated)); } catch (e) {}
-      return updated;
-    });
-
+    setMemories((prev) => prev.filter((m) => m.id !== id));
+    await deleteMemoryDB(id);
     try {
       await fetch(`/api/memories/${id}`, { method: 'DELETE' });
     } catch (err) {

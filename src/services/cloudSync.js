@@ -1,9 +1,13 @@
 import { defaultWeddingData } from '../defaultData';
+import {
+  getAllMemoriesDB,
+  saveMemoryDB,
+  saveBulkMemoriesDB,
+  deleteMemoryDB,
+  onMemoryBroadcast
+} from './dbStorage';
 
-const CLOUD_OBJECT_ID = 'ff808181a067127101a06b5fb5520d38';
-const CLOUD_API_URL = `https://api.restful-api.dev/objects/${CLOUD_OBJECT_ID}`;
-
-// Generate or retrieve persistent anonymous device ID for like/unlike tracking
+// Generate or retrieve persistent anonymous device ID for single like/unlike tracking
 export function getDeviceId() {
   try {
     let id = localStorage.getItem('wedding_device_id');
@@ -18,108 +22,113 @@ export function getDeviceId() {
 }
 
 /**
- * Fetch all memories from online cloud store and local server
+ * Merge local and remote memories without ever losing or overwriting user's photos
  */
-export async function fetchOnlineMemories() {
-  let cloudMemories = null;
+export function mergeMemories(localList = [], remoteList = []) {
+  const map = new Map();
 
-  // 1. Fetch from Global Cloud Database (Works across all devices on Vercel & Mobile)
-  try {
-    const res = await fetch(CLOUD_API_URL, { cache: 'no-store' });
-    if (res.ok) {
-      const json = await res.json();
-      if (json?.data?.memories && Array.isArray(json.data.memories)) {
-        cloudMemories = json.data.memories;
+  // 1. Seed with default template memories
+  (defaultWeddingData.memories || []).forEach((m) => {
+    if (m && m.id) map.set(m.id, { ...m });
+  });
+
+  // 2. Merge remote list
+  if (Array.isArray(remoteList)) {
+    remoteList.forEach((m) => {
+      if (m && m.id) {
+        const existing = map.get(m.id) || {};
+        map.set(m.id, { ...existing, ...m });
       }
-    }
-  } catch (e) {
-    console.warn('Cloud store fetch error:', e);
+    });
   }
 
-  // 2. Fetch from Local Express Server if available
+  // 3. Merge local list (highest priority for user's created content)
+  if (Array.isArray(localList)) {
+    localList.forEach((m) => {
+      if (m && m.id) {
+        const existing = map.get(m.id) || {};
+        map.set(m.id, { ...existing, ...m });
+      }
+    });
+  }
+
+  const result = Array.from(map.values());
+  // Sort latest first
+  result.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+  return result;
+}
+
+/**
+ * Fetch memories from IndexedDB, serverless backend, and local storage
+ */
+export async function fetchOnlineMemories() {
+  // 1. Always load local IndexedDB first (lightning-fast, 100% persistent)
+  let localMemories = [];
   try {
-    const localRes = await fetch('/api/memories', { cache: 'no-store' });
-    if (localRes.ok) {
-      const localJson = await localRes.json();
-      if (localJson.success && Array.isArray(localJson.data)) {
-        if (!cloudMemories) {
-          cloudMemories = localJson.data;
-        } else {
-          // Merge both
-          const map = new Map(cloudMemories.map((m) => [m.id, m]));
-          localJson.data.forEach((m) => map.set(m.id, m));
-          cloudMemories = Array.from(map.values());
+    localMemories = await getAllMemoriesDB();
+  } catch (err) {
+    console.warn('Error reading from IndexedDB:', err);
+  }
+
+  let remoteMemories = [];
+
+  // 2. Attempt fetching from Backend API / Vercel Serverless
+  try {
+    const res = await fetch('/api/memories', { cache: 'no-store' });
+    if (res.ok) {
+      const contentType = res.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        const json = await res.json();
+        if (json && json.success && Array.isArray(json.data)) {
+          remoteMemories = json.data;
         }
       }
     }
   } catch (e) {
-    // Local express not running, normal on Vercel
+    // API not available or offline
   }
 
-  // 3. Fallback to LocalStorage + Default Memories if offline
-  if (!cloudMemories || cloudMemories.length === 0) {
-    try {
-      const cached = JSON.parse(localStorage.getItem('wedding_memories') || '[]');
-      if (Array.isArray(cached) && cached.length > 0) {
-        cloudMemories = cached;
-      }
-    } catch (e) {}
+  // 3. Merge memories safely so no photos are ever wiped out
+  const combined = mergeMemories(localMemories, remoteMemories);
+
+  // 4. Update IndexedDB in background
+  if (remoteMemories.length > 0) {
+    saveBulkMemoriesDB(remoteMemories).catch(() => {});
   }
 
-  if (!cloudMemories || cloudMemories.length === 0) {
-    cloudMemories = defaultWeddingData.memories || [];
-  }
-
-  // Ensure latest sorted by createdAt descending
-  cloudMemories.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-
-  try {
-    localStorage.setItem('wedding_memories', JSON.stringify(cloudMemories));
-  } catch (e) {}
-
-  return cloudMemories;
+  return combined;
 }
 
 /**
- * Broadcast & Save new Memory to online cloud store, server, and local storage
+ * Save new guest memory to IndexedDB and broadcast online
  */
 export async function saveMemoryOnline(newMemory) {
-  if (!newMemory) return;
+  if (!newMemory || !newMemory.id) return;
 
-  // 1. Immediately update localStorage
-  try {
-    const existing = JSON.parse(localStorage.getItem('wedding_memories') || '[]');
-    const updated = [newMemory, ...existing.filter((m) => m.id !== newMemory.id)];
-    localStorage.setItem('wedding_memories', JSON.stringify(updated));
-  } catch (e) {}
+  // 1. Save to IndexedDB immediately (instant persistence)
+  await saveMemoryDB(newMemory);
 
-  // 2. Push to Global Cloud Store
+  // 2. Send to Backend API / Serverless endpoint
   try {
-    const curMemories = await fetchOnlineMemories();
-    const updatedCloud = [newMemory, ...curMemories.filter((m) => m.id !== newMemory.id)];
-    
-    await fetch(CLOUD_API_URL, {
-      method: 'PUT',
+    await fetch('/api/memories', {
+      method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        name: 'wedding_photobooth_momenbahagia_adisty_irsyad',
-        data: { memories: updatedCloud }
-      })
+      body: JSON.stringify(newMemory)
     });
   } catch (e) {
-    console.warn('Failed pushing to cloud store:', e);
+    console.warn('API post error (local saved):', e);
   }
 }
 
 /**
- * Toggle Love / Unlove online
+ * Toggle Love / Unlove per device and sync
  */
 export async function toggleLikeOnline(memoryId, isLiked) {
   const deviceId = getDeviceId();
 
   try {
-    const curMemories = await fetchOnlineMemories();
-    const target = curMemories.find((m) => m.id === memoryId);
+    const all = await getAllMemoriesDB();
+    const target = all.find((m) => m.id === memoryId);
     if (target) {
       if (!Array.isArray(target.likedIps)) target.likedIps = [];
       const hasId = target.likedIps.includes(deviceId);
@@ -132,16 +141,19 @@ export async function toggleLikeOnline(memoryId, isLiked) {
         target.likesCount = Math.max(0, (target.likesCount || 1) - 1);
       }
 
-      await fetch(CLOUD_API_URL, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: 'wedding_photobooth_momenbahagia_adisty_irsyad',
-          data: { memories: curMemories }
-        })
-      });
+      await saveMemoryDB(target);
+
+      try {
+        await fetch(`/api/memories/${memoryId}/like`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ isLiked, deviceId })
+        });
+      } catch (e) {}
     }
   } catch (e) {
-    console.warn('Failed syncing like to cloud store:', e);
+    console.warn('Like toggle sync warning:', e);
   }
 }
+
+export { onMemoryBroadcast };

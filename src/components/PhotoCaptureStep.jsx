@@ -188,12 +188,36 @@ export default function PhotoCaptureStep({
     if (file) {
       const reader = new FileReader();
       reader.onload = (event) => {
-        const newPhotos = [...photos];
-        newPhotos[activeSlot] = event.target.result;
-        setPhotos(newPhotos);
-        if (activeSlot < slotCount - 1) {
-          setActiveSlot(activeSlot + 1);
-        }
+        const img = new Image();
+        img.onload = () => {
+          // Max dimension 1000px for crisp quality with minimal memory footprint
+          const maxDim = 1000;
+          let w = img.width;
+          let h = img.height;
+          if (w > maxDim || h > maxDim) {
+            if (w > h) {
+              h = Math.round((h * maxDim) / w);
+              w = maxDim;
+            } else {
+              w = Math.round((w * maxDim) / h);
+              h = maxDim;
+            }
+          }
+          const canvas = document.createElement('canvas');
+          canvas.width = w;
+          canvas.height = h;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, w, h);
+          const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.85);
+
+          const newPhotos = [...photos];
+          newPhotos[activeSlot] = compressedDataUrl;
+          setPhotos(newPhotos);
+          if (activeSlot < slotCount - 1) {
+            setActiveSlot(activeSlot + 1);
+          }
+        };
+        img.src = event.target.result;
       };
       reader.readAsDataURL(file);
     }
