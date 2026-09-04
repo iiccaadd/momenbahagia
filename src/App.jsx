@@ -4,6 +4,7 @@ import GuestLanding from './components/GuestLanding';
 import AdminPanel from './components/AdminPanel';
 import ProjectorView from './components/ProjectorView';
 import { defaultWeddingData } from './defaultData';
+import { fetchOnlineMemories, saveMemoryOnline, toggleLikeOnline } from './services/cloudSync';
 
 export default function App() {
   const [currentView, setCurrentView] = useState('guest'); // 'guest', 'admin', 'projector'
@@ -40,7 +41,7 @@ export default function App() {
   });
 
   const [latestMemory, setLatestMemory] = useState(null);
-  const [isConnected, setIsConnected] = useState(socket.connected);
+  const [isConnected, setIsConnected] = useState(true);
 
   // Track liked memories for single love / unlove functionality
   const [likedMemoryIds, setLikedMemoryIds] = useState(() => {
@@ -72,83 +73,53 @@ export default function App() {
     setCurrentView(view);
   };
 
-  // Initial Fetch & Socket Listeners
+  // 1. Online Real-time Cloud Sync & Polling Engine
   useEffect(() => {
-    // 1. Fetch REST Fallback (if backend is active)
-    fetch('/api/settings')
-      .then((r) => r.json())
-      .then((res) => {
-        if (res.success && res.data) {
-          setWeddingSettings(res.data);
-          try { localStorage.setItem('wedding_settings', JSON.stringify(res.data)); } catch (e) {}
-          if (res.data.templates) {
-            setTemplates(res.data.templates);
-            try { localStorage.setItem('wedding_templates', JSON.stringify(res.data.templates)); } catch (e) {}
-          }
-        }
-      })
-      .catch(() => {
-        // Standalone/Offline mode fallback
-      });
-
-    fetch('/api/memories')
-      .then((r) => r.json())
-      .then((res) => {
-        if (res.success && Array.isArray(res.data)) {
+    const syncData = async () => {
+      try {
+        const cloudMems = await fetchOnlineMemories();
+        if (Array.isArray(cloudMems) && cloudMems.length > 0) {
           setMemories((prev) => {
-            const serverMap = new Map(res.data.map((m) => [m.id, m]));
-            const localOnly = prev.filter((m) => !serverMap.has(m.id));
-            const merged = [...res.data, ...localOnly];
-            try { localStorage.setItem('wedding_memories', JSON.stringify(merged)); } catch (e) {}
-            return merged;
+            // Check if there are changes before triggering re-render
+            if (JSON.stringify(prev) !== JSON.stringify(cloudMems)) {
+              return cloudMems;
+            }
+            return prev;
           });
+          setIsConnected(true);
         }
-      })
-      .catch(() => {
-        // Standalone/Offline mode fallback
-      });
-
-    // 2. Realtime Socket Setup
-    const onConnect = () => {
-      setIsConnected(true);
-    };
-
-    const onDisconnect = () => {
-      setIsConnected(false);
-    };
-
-    const onInitData = (data) => {
-      if (data.settings) {
-        setWeddingSettings(data.settings);
-        if (data.settings.templates) setTemplates(data.settings.templates);
-      }
-      if (data.memories && Array.isArray(data.memories)) {
-        setMemories((prev) => {
-          const serverMap = new Map(data.memories.map((m) => [m.id, m]));
-          const localOnly = prev.filter((m) => !serverMap.has(m.id));
-          const merged = [...data.memories, ...localOnly];
-          try { localStorage.setItem('wedding_memories', JSON.stringify(merged)); } catch (e) {}
-          return merged;
-        });
+      } catch (e) {
+        console.warn('Sync loop error:', e);
       }
     };
 
-    const onSettingsUpdated = (newSettings) => {
-      setWeddingSettings(newSettings);
-      if (newSettings.templates) setTemplates(newSettings.templates);
-    };
+    // Initial sync immediately
+    syncData();
 
-    const onMemoriesUpdated = (newMemories) => {
-      if (Array.isArray(newMemories)) {
-        setMemories((prev) => {
-          const serverMap = new Map(newMemories.map((m) => [m.id, m]));
-          const localOnly = prev.filter((m) => !serverMap.has(m.id));
-          const merged = [...newMemories, ...localOnly];
-          try { localStorage.setItem('wedding_memories', JSON.stringify(merged)); } catch (e) {}
-          return merged;
-        });
+    // Background interval sync every 4 seconds for live cross-device updates
+    const interval = setInterval(syncData, 4000);
+
+    // Sync on window focus / tab visibility change
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        syncData();
       }
     };
+
+    window.addEventListener('visibilitychange', onVisibilityChange);
+    window.addEventListener('focus', syncData);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('visibilitychange', onVisibilityChange);
+      window.removeEventListener('focus', syncData);
+    };
+  }, []);
+
+  // 2. Socket Listeners (for Local Dev or WebSocket Backend)
+  useEffect(() => {
+    const onConnect = () => setIsConnected(true);
+    const onDisconnect = () => {};
 
     const onMemoryNew = (newMem) => {
       setLatestMemory(newMem);
@@ -170,25 +141,19 @@ export default function App() {
 
     socket.on('connect', onConnect);
     socket.on('disconnect', onDisconnect);
-    socket.on('init:data', onInitData);
-    socket.on('settings:updated', onSettingsUpdated);
-    socket.on('memories:updated', onMemoriesUpdated);
     socket.on('memory:new', onMemoryNew);
     socket.on('memory:liked', onMemoryLiked);
 
     return () => {
       socket.off('connect', onConnect);
       socket.off('disconnect', onDisconnect);
-      socket.off('init:data', onInitData);
-      socket.off('settings:updated', onSettingsUpdated);
-      socket.off('memories:updated', onMemoriesUpdated);
       socket.off('memory:new', onMemoryNew);
       socket.off('memory:liked', onMemoryLiked);
     };
   }, []);
 
-  // Handle adding new guest memory persistently
-  const handleAddNewMemory = (newMem) => {
+  // Handle adding new guest memory persistently across all devices
+  const handleAddNewMemory = async (newMem) => {
     if (!newMem) return;
     setLatestMemory(newMem);
     setMemories((prev) => {
@@ -199,9 +164,12 @@ export default function App() {
       } catch (e) {}
       return updated;
     });
+
+    // Save to global cloud database so all other devices see it
+    await saveMemoryOnline(newMem);
   };
 
-  // Toggle Love / Unlove per client
+  // Toggle Love / Unlove per client and sync to cloud
   const handleLikeMemory = async (id) => {
     const isAlreadyLiked = likedMemoryIds.includes(id);
     const nextLikedIds = isAlreadyLiked
@@ -213,7 +181,7 @@ export default function App() {
       localStorage.setItem('user_liked_memories', JSON.stringify(nextLikedIds));
     } catch (e) {}
 
-    // Optimistic UI update for likesCount
+    // Optimistic UI update
     setMemories((prev) => {
       const updated = prev.map((m) => {
         if (m.id === id) {
@@ -229,21 +197,12 @@ export default function App() {
       return updated;
     });
 
+    // Sync like to cloud database
+    await toggleLikeOnline(id, !isAlreadyLiked);
+
     try {
-      const res = await fetch(`/api/memories/${id}/like`, { method: 'POST' });
-      const json = await res.json();
-      if (json.success && json.data) {
-        setMemories((prev) => {
-          const updated = prev.map((m) => (m.id === id ? { ...m, likesCount: json.data.likesCount } : m));
-          try {
-            localStorage.setItem('wedding_memories', JSON.stringify(updated));
-          } catch (e) {}
-          return updated;
-        });
-      }
-    } catch (err) {
-      console.warn('Like request network error (handled locally):', err);
-    }
+      await fetch(`/api/memories/${id}/like`, { method: 'POST' });
+    } catch (err) {}
   };
 
   const handleDeleteMemory = async (id) => {
