@@ -27,6 +27,7 @@ import {
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { renderPhotostrip } from '../utils/canvasExport';
+import { useNotify } from '../context/NotificationContext';
 
 export default function AdminPanel({
   weddingSettings,
@@ -39,6 +40,7 @@ export default function AdminPanel({
   onDeleteMemory,
   onPinMemory,
 }) {
+  const notify = useNotify();
   const [activeTab, setActiveTab] = useState('settings'); // 'settings', 'memories', 'templates', 'qrcode'
   const [formData, setFormData] = useState({
     groomName: weddingSettings?.couple?.groomName || 'Shafiq',
@@ -177,7 +179,7 @@ export default function AdminPanel({
       }
     } catch (err) {
       console.error('Error updating settings:', err);
-      alert('Gagal menyimpan pengaturan.');
+      notify.error('Gagal menyimpan pengaturan ke server.');
     } finally {
       setIsSaving(false);
     }
@@ -198,11 +200,12 @@ export default function AdminPanel({
       if (json.success && json.url) {
         setFormData((prev) => ({ ...prev, heroImage: json.url }));
         setSaveSuccess(true);
+        notify.success('Foto sampul berhasil diperbarui!');
         setTimeout(() => setSaveSuccess(false), 2000);
       }
     } catch (err) {
       console.error('Error uploading cover:', err);
-      alert('Gagal mengunggah foto sampul.');
+      notify.error('Gagal mengunggah foto sampul.');
     }
   };
 
@@ -226,11 +229,12 @@ export default function AdminPanel({
           bgmTitle: json.title || file.name,
         }));
         setSaveSuccess(true);
+        notify.success('Lagu latar berhasil diunggah!');
         setTimeout(() => setSaveSuccess(false), 2000);
       }
     } catch (err) {
       console.error('Error uploading BGM:', err);
-      alert('Gagal mengunggah lagu pernikahan.');
+      notify.error('Gagal mengunggah lagu pernikahan.');
     }
   };
 
@@ -254,12 +258,13 @@ export default function AdminPanel({
           customFrameUrl: json.url,
           name: prev.name === 'Custom Wedding Frame' ? file.name.replace(/\.[^/.]+$/, "") : prev.name
         }));
+        notify.success('Frame template berhasil diunggah!');
       } else {
-        alert('Gagal mengunggah template: ' + (json.message || 'Error'));
+        notify.error('Gagal mengunggah template: ' + (json.message || 'Error'));
       }
     } catch (err) {
       console.error('Error uploading template file:', err);
-      alert('Gagal mengunggah template frame.');
+      notify.error('Gagal mengunggah template frame.');
     } finally {
       setIsUploadingFrame(false);
     }
@@ -267,7 +272,7 @@ export default function AdminPanel({
 
   const handleSaveCustomTemplate = async () => {
     if (!customTplForm.name) {
-      alert('Mohon masukkan nama template.');
+      notify.warning('Mohon masukkan nama template terlebih dahulu.', 'Nama Template');
       return;
     }
 
@@ -281,22 +286,30 @@ export default function AdminPanel({
       if (json.success) {
         setIsTemplateModalOpen(false);
         setSaveSuccess(true);
+        notify.success('Template kustom berhasil disimpan!');
         const allTemplatesRes = await fetch('/api/templates').then(r => r.json());
         if (allTemplatesRes.success && onUpdateTemplates) {
           onUpdateTemplates(allTemplatesRes.data);
         }
         setTimeout(() => setSaveSuccess(false), 3000);
       } else {
-        alert('Gagal menyimpan template: ' + (json.error || 'Terjadi kesalahan'));
+        notify.error('Gagal menyimpan template: ' + (json.error || 'Terjadi kesalahan'));
       }
     } catch (err) {
       console.error('Error creating template:', err);
-      alert('Gagal menyimpan template.');
+      notify.error('Gagal menyimpan template.');
     }
   };
 
   const handleDeleteTemplate = async (templateId, templateName) => {
-    if (!confirm(`Hapus template "${templateName}"?`)) return;
+    const confirmed = await notify.confirm(
+      `Apakah Anda yakin ingin menghapus template "${templateName}"?`,
+      'Hapus Template',
+      'Ya, Hapus',
+      'Batal'
+    );
+    if (!confirmed) return;
+
     try {
       const res = await fetch(`/api/templates/${templateId}`, {
         method: 'DELETE',
@@ -304,6 +317,7 @@ export default function AdminPanel({
       const json = await res.json();
       if (json.success) {
         setSaveSuccess(true);
+        notify.success('Template berhasil dihapus.');
         const allTemplatesRes = await fetch('/api/templates').then(r => r.json());
         if (allTemplatesRes.success && onUpdateTemplates) {
           onUpdateTemplates(allTemplatesRes.data);
@@ -647,9 +661,16 @@ export default function AdminPanel({
                         </button>
                         <button
                           type="button"
-                          onClick={() => {
-                            if (confirm(`Hapus kenangan dari ${m.guestName}?`)) {
+                          onClick={async () => {
+                            const confirmed = await notify.confirm(
+                              `Apakah Anda yakin ingin menghapus kenangan dari "${m.guestName}"?`,
+                              'Hapus Kenangan',
+                              'Ya, Hapus',
+                              'Batal'
+                            );
+                            if (confirmed) {
                               onDeleteMemory && onDeleteMemory(m.id);
+                              notify.success('Kenangan berhasil dihapus.');
                             }
                           }}
                           className="p-1.5 text-gray-400 hover:text-rose-600 rounded-lg transition-colors"

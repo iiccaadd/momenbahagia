@@ -19,6 +19,7 @@ import VoiceRecorder from './VoiceRecorder';
 import TemplateSelector from './TemplateSelector';
 import PhotoCaptureStep from './PhotoCaptureStep';
 import { renderPhotostrip } from '../utils/canvasExport';
+import { useNotify } from '../context/NotificationContext';
 
 export default function AddMemoryModal({
   isOpen,
@@ -106,23 +107,25 @@ export default function AddMemoryModal({
     }
   };
 
+  const notify = useNotify();
+
   const handleNextStep = () => {
     if (currentStep === 1) {
       if (!guestName.trim()) {
-        alert('Mohon masukkan nama Anda terlebih dahulu.');
+        notify.warning('Mohon masukkan nama Anda terlebih dahulu sebelum melanjutkan.', 'Nama Diperlukan');
         return;
       }
       setCurrentStep(2);
     } else if (currentStep === 2) {
       if (!selectedTemplate) {
-        alert('Silakan pilih salah satu frame photobooth.');
+        notify.warning('Silakan pilih salah satu frame photobooth terlebih dahulu.', 'Pilih Bingkai');
         return;
       }
       setCurrentStep(3);
     } else if (currentStep === 3) {
       const filledPhotos = photos.filter(Boolean);
       if (filledPhotos.length === 0) {
-        alert('Mohon ambil atau upload minimal 1 foto.');
+        notify.warning('Mohon ambil foto dengan kamera atau unggah minimal 1 foto dari galeri.', 'Foto Diperlukan');
         return;
       }
       setCurrentStep(4);
@@ -222,7 +225,7 @@ export default function AddMemoryModal({
       }, 2200);
     } catch (err) {
       console.error('Submit memory error:', err);
-      alert('Terjadi kesalahan saat memproses kenangan.');
+      notify.error('Terjadi kendala saat memproses kenangan Anda. Silakan coba beberapa saat lagi.', 'Gagal Mengirim');
     } finally {
       setIsSubmitting(false);
     }

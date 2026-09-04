@@ -1,7 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Mic, Square, Play, Pause, RotateCcw, Volume2, Sparkles, Trash2 } from 'lucide-react';
+import { useNotify } from '../context/NotificationContext';
 
 export default function VoiceRecorder({ onRecordingComplete, onRemoveAudio }) {
+  const notify = useNotify();
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
   const [audioBlob, setAudioBlob] = useState(null);
@@ -62,7 +64,7 @@ export default function VoiceRecorder({ onRecordingComplete, onRemoveAudio }) {
       }, 1000);
     } catch (err) {
       console.error('Microphone error:', err);
-      alert('Tidak dapat mengakses mikrofon. Pastikan izin mikrofon telah diberikan di browser Anda.');
+      notify.warning('Tidak dapat mengakses mikrofon. Mohon periksa dan izinkan akses mikrofon di browser Anda.', 'Izin Mikrofon');
     }
   };
 
