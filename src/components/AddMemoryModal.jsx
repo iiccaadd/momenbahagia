@@ -65,7 +65,7 @@ export default function AddMemoryModal({
     });
   }, [selectedTemplate]);
 
-  // Reset modal state when opened
+  // Reset modal state and lock background scroll when opened
   useEffect(() => {
     if (isOpen) {
       setCurrentStep(1);
@@ -74,6 +74,12 @@ export default function AddMemoryModal({
       setIsSuccess(false);
       setIsSubmitting(false);
       setIsPrinting(false);
+
+      const originalOverflow = document.body.style.overflow;
+      document.body.style.overflow = 'hidden';
+      return () => {
+        document.body.style.overflow = originalOverflow || 'unset';
+      };
     }
   }, [isOpen]);
 

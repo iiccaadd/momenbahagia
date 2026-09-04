@@ -48,6 +48,17 @@ export default function GuestLanding({
     }
   };
 
+  // Lock background scrolling when explore or add modal is open
+  useEffect(() => {
+    if (isExploreOpen || isAddModalOpen) {
+      const originalOverflow = document.body.style.overflow;
+      document.body.style.overflow = 'hidden';
+      return () => {
+        document.body.style.overflow = originalOverflow || 'unset';
+      };
+    }
+  }, [isExploreOpen, isAddModalOpen]);
+
   const handleEnvelopeOpened = () => {
     setIsIntroOpen(false);
     // Automatically attempt to play music on user gesture
@@ -220,33 +231,51 @@ export default function GuestLanding({
 
       {/* Explore Memories Slide-Over Drawer Modal */}
       {isExploreOpen && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex justify-center items-end sm:items-center p-0 sm:p-4 animate-wmfadein">
-          <div className="w-full max-w-lg bg-[#F6F4EE] rounded-t-[32px] sm:rounded-[32px] shadow-2xl border border-[#E9DDC5] max-h-[90vh] flex flex-col overflow-hidden animate-wmsheetin">
-            {/* Modal Header */}
-            <div className="px-6 py-4 bg-[#F6F4EE] border-b border-[#E9DDC5] flex items-center justify-between">
-              <div>
-                <span className="text-[10px] font-bold tracking-[0.16em] text-[#999794] uppercase font-cinzel">
-                  LIVE MEMORIES FEED
-                </span>
-                <h3 className="font-cinzel font-bold text-base text-[#263727]">
-                  Kenangan Para Tamu ({memories.length})
-                </h3>
-              </div>
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex justify-center items-end sm:items-center p-0 sm:p-4 animate-wmfadein">
+          <div className="w-full max-w-lg bg-[#F6F4EE] rounded-t-[32px] sm:rounded-[32px] shadow-2xl border border-[#E9DDC5] max-h-[92vh] flex flex-col overflow-hidden animate-wmsheetin">
+            {/* Modal Header - Centered Wedding Album style with Zenaida Script */}
+            <div className="relative px-4 sm:px-6 py-4 bg-[#F6F4EE] border-b border-[#E9DDC5] flex items-center justify-between">
+              {/* Back Arrow Button on Left */}
               <button
                 type="button"
                 onClick={() => setIsExploreOpen(false)}
-                className="w-9 h-9 rounded-full bg-[#E9DDC5]/40 text-[#263727] flex items-center justify-center hover:bg-[#E9DDC5] transition-colors"
+                className="w-9 h-9 rounded-full bg-[#E9DDC5]/50 text-[#263727] flex items-center justify-center hover:bg-[#E9DDC5] transition-colors shadow-xs"
+                title="Kembali"
               >
-                <X className="w-5 h-5" />
+                <ArrowLeft className="w-4 h-4" />
+              </button>
+
+              {/* Centered Header Text */}
+              <div className="flex-1 text-center px-2 space-y-0.5">
+                <span className="text-[11px] sm:text-xs font-bold tracking-[0.25em] text-[#263727] uppercase font-cinzel block">
+                  WEDDING ALBUM
+                </span>
+                <h2 className="font-zenaida text-3xl sm:text-4xl text-[#7a1827] tracking-wide leading-none py-0.5">
+                  {couple.brideName || 'Adisty'} & {couple.groomName || 'Irsyad'}
+                </h2>
+                <span className="text-[9px] sm:text-[10px] tracking-[0.2em] text-[#8c827a] uppercase font-cinzel font-medium block">
+                  {couple.formattedDate || "11 NOVEMBER 2026"}
+                </span>
+              </div>
+
+              {/* Close Button on Right */}
+              <button
+                type="button"
+                onClick={() => setIsExploreOpen(false)}
+                className="w-9 h-9 rounded-full bg-[#E9DDC5]/50 text-[#263727] flex items-center justify-center hover:bg-[#E9DDC5] transition-colors shadow-xs"
+                title="Tutup"
+              >
+                <X className="w-4 h-4" />
               </button>
             </div>
 
             {/* Modal Body */}
-            <div className="p-4 overflow-y-auto flex-1">
+            <div className="p-3 sm:p-4 overflow-y-auto flex-1">
               <ExploreMemories
                 memories={memories}
                 onLike={onLikeMemory}
                 likedMemoryIds={likedMemoryIds}
+                couple={couple}
               />
             </div>
           </div>

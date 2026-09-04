@@ -43,6 +43,10 @@
   font-family: var(--font-script);
 }
 
+.font-zenaida {
+  font-family: "Pinyon Script", "Italianno", "Allura", "Parisienne", "Great Vibes", "Alex Brush", cursive;
+}
+
 .font-body {
   font-family: var(--font-body);
 }

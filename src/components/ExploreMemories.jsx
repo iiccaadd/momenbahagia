@@ -1,12 +1,29 @@
-import React, { useState, useRef } from 'react';
-import { Play, Pause, Heart, Download, Sparkles, X, Eye } from 'lucide-react';
+import React, { useState, useRef, useEffect } from 'react';
+import { Play, Pause, Heart, Download, Sparkles, X, Eye, Volume2 } from 'lucide-react';
 
-export default function ExploreMemories({ memories = [], onLike, likedMemoryIds = [] }) {
+export default function ExploreMemories({
+  memories = [],
+  onLike,
+  likedMemoryIds = [],
+  couple = {},
+}) {
   const [activeAudioId, setActiveAudioId] = useState(null);
   const [selectedMemory, setSelectedMemory] = useState(null);
   const audioPlayerRef = useRef(null);
 
-  const handlePlayVoice = (id, url) => {
+  // Lock background scroll when detail modal is open
+  useEffect(() => {
+    if (selectedMemory) {
+      const originalOverflow = document.body.style.overflow;
+      document.body.style.overflow = 'hidden';
+      return () => {
+        document.body.style.overflow = originalOverflow || 'unset';
+      };
+    }
+  }, [selectedMemory]);
+
+  const handlePlayVoice = (id, url, e) => {
+    if (e) e.stopPropagation();
     if (activeAudioId === id) {
       if (audioPlayerRef.current) audioPlayerRef.current.pause();
       setActiveAudioId(null);
@@ -16,6 +33,31 @@ export default function ExploreMemories({ memories = [], onLike, likedMemoryIds 
         audioPlayerRef.current.src = url;
         audioPlayerRef.current.play().catch(console.error);
       }
+    }
+  };
+
+  const formatDate = (isoString) => {
+    try {
+      const d = new Date(isoString || Date.now());
+      return d.toLocaleDateString('id-ID', {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+      }).toUpperCase();
+    } catch (e) {
+      return '03 SEP 2026';
+    }
+  };
+
+  const formatTime = (isoString) => {
+    try {
+      const d = new Date(isoString || Date.now());
+      return d.toLocaleTimeString('id-ID', {
+        hour: '2-digit',
+        minute: '2-digit',
+      }) + ' WIB';
+    } catch (e) {
+      return '17.49 WIB';
     }
   };
 
@@ -36,153 +78,94 @@ export default function ExploreMemories({ memories = [], onLike, likedMemoryIds 
   }
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
       <audio
         ref={audioPlayerRef}
         onEnded={() => setActiveAudioId(null)}
         className="hidden"
       />
 
-      {/* Grid / List of Memories */}
-      <div className="space-y-4">
+      {/* 2-Column Parallel Grid for Photobooth Results (Posisi Sejajar Sesuai Foto) */}
+      <div className="grid grid-cols-2 gap-3 sm:gap-4">
         {memories.map((m) => {
           const isLiked = likedMemoryIds.includes(m.id);
 
           return (
             <div
               key={m.id}
-              className="bg-white rounded-2xl p-4 shadow-sm border border-[#E9DDC5] space-y-3.5 transition-all hover:shadow-md"
+              onClick={() => setSelectedMemory(m)}
+              className="group relative flex flex-col bg-[#4a121a] text-[#F6F4EE] rounded-2xl sm:rounded-[22px] overflow-hidden border border-[#E9DDC5]/30 shadow-md hover:shadow-xl transition-all duration-300 hover:scale-[1.01] cursor-pointer select-none"
             >
-              {/* Header: Guest Name & Time */}
-              <div className="flex items-center justify-between border-b border-[#F6F4EE] pb-2">
-                <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 rounded-full bg-[#263727] text-[#F6F4EE] flex items-center justify-center text-xs font-bold font-cinzel">
-                    {m.guestName?.charAt(0)?.toUpperCase() || 'G'}
-                  </div>
-                  <div>
-                    <h4 className="font-cinzel font-bold text-xs sm:text-sm text-[#263727]">
-                      {m.guestName}
-                    </h4>
-                    <span className="text-[10px] text-[#999794]">
-                      {new Date(m.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} WIB
-                    </span>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-1.5">
-                  <button
-                    type="button"
-                    onClick={() => onLike && onLike(m.id)}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-all active:scale-90 select-none shadow-xs ${
-                      isLiked
-                        ? 'bg-rose-50 text-[#E11D48] border border-rose-200 shadow-rose-100'
-                        : 'bg-[#F6F4EE] text-[#55524e] border border-[#E9DDC5] hover:bg-[#E9DDC5]/50'
-                    }`}
-                    title={isLiked ? "Batal menyukai (Klik untuk Unlove)" : "Sukai kenangan ini (Klik untuk Love)"}
-                  >
-                    <Heart
-                      className={`w-3.5 h-3.5 transition-all duration-200 ${
-                        isLiked ? 'fill-[#E11D48] text-[#E11D48] scale-110' : 'text-[#999794]'
-                      }`}
-                    />
-                    <span className={`font-bold ${isLiked ? 'text-[#E11D48]' : 'text-[#263727]'}`}>
-                      {m.likesCount || 0}
-                    </span>
-                  </button>
-                </div>
-              </div>
-
-              {/* Photostrip Image Card (Click to open full detail modal) */}
-              <div
-                onClick={() => setSelectedMemory(m)}
-                className="rounded-xl overflow-hidden bg-[#F6F4EE] p-2 flex justify-center cursor-pointer group relative shadow-inner"
-              >
+              {/* Photostrip Image Preview Area */}
+              <div className="w-full bg-[#360d13] p-1 sm:p-1.5 flex items-center justify-center relative overflow-hidden">
                 <img
                   src={m.stripUrl}
                   alt={m.guestName}
-                  className="max-h-[280px] w-auto rounded-lg object-contain transition-transform duration-300 group-hover:scale-[1.02]"
+                  className="w-full h-auto max-h-[340px] sm:max-h-[380px] object-contain rounded-xl transition-transform duration-300 group-hover:scale-[1.02]"
                 />
-                <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center rounded-xl">
-                  <span className="px-3.5 py-2 rounded-full bg-white/95 text-[#263727] text-xs font-cinzel font-bold flex items-center gap-1.5 shadow-lg">
-                    <Eye className="w-3.5 h-3.5" /> Buka Kenangan
-                  </span>
-                </div>
-              </div>
 
-              {/* Voice Message Player */}
-              {m.audioUrl && (
-                <div className="p-2.5 rounded-xl bg-[#F6F4EE] border border-[#E9DDC5] flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-2.5">
-                    <button
-                      type="button"
-                      onClick={() => handlePlayVoice(m.id, m.audioUrl)}
-                      className="w-8 h-8 rounded-full bg-[#263727] text-[#F6F4EE] flex items-center justify-center shadow hover:bg-[#1d2b1e]"
-                    >
-                      {activeAudioId === m.id ? (
-                        <Pause className="w-3.5 h-3.5 fill-white" />
-                      ) : (
-                        <Play className="w-3.5 h-3.5 fill-white ml-0.5" />
-                      )}
-                    </button>
-                    <div>
-                      <span className="text-[11px] font-bold text-[#263727] font-cinzel block">
-                        {activeAudioId === m.id ? 'Memutar Pesan Suara...' : 'Pesan Suara Tamu'}
-                      </span>
-                      <span className="text-[10px] text-[#999794]">
-                        {m.audioDuration ? `${m.audioDuration} detik` : 'Audio Kenangan'}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Animated Waveform Bars during playback */}
-                  <div className="flex items-center gap-1 h-5 px-1">
-                    {[8, 14, 20, 12, 16, 22, 10, 18].map((h, i) => (
-                      <div
-                        key={i}
-                        className={`w-1 rounded-full transition-all ${
-                          activeAudioId === m.id ? 'bg-[#263727] animate-wmpulse' : 'bg-[#263727]/30'
-                        }`}
-                        style={{
-                          height: `${h}px`,
-                          animationDelay: `${(i % 3) * 0.15}s`,
-                        }}
-                      />
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Guest Wishes Text */}
-              {m.guestMessage && (
-                <div className="text-xs text-[#000000] italic bg-[#FAFAF3] p-3 rounded-xl border border-[#E9DDC5]/60">
-                  "{m.guestMessage}"
-                </div>
-              )}
-
-              {/* Download & View Action Bar */}
-              <div className="flex items-center justify-between pt-1 border-t border-[#F6F4EE]">
+                {/* Floating Love Button */}
                 <button
                   type="button"
-                  onClick={() => setSelectedMemory(m)}
-                  className="inline-flex items-center gap-1 text-xs text-[#263727] hover:underline font-semibold"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (onLike) onLike(m.id);
+                  }}
+                  className={`absolute top-2.5 right-2.5 px-2 py-1 rounded-full text-[10px] font-bold flex items-center gap-1 backdrop-blur-md shadow-md transition-all active:scale-90 ${
+                    isLiked
+                      ? 'bg-rose-600/90 text-white border border-rose-400'
+                      : 'bg-black/50 text-white/90 hover:bg-black/70 border border-white/20'
+                  }`}
+                  title={isLiked ? "Batal suka (Unlove)" : "Sukai kenangan (Love)"}
                 >
-                  <Eye className="w-3.5 h-3.5" /> Detail
+                  <Heart
+                    className={`w-3 h-3 ${
+                      isLiked ? 'fill-white text-white scale-110' : 'text-white'
+                    }`}
+                  />
+                  <span>{m.likesCount || 0}</span>
                 </button>
 
-                <a
-                  href={m.stripUrl}
-                  download={`wedding-memory-${m.guestName}.png`}
-                  className="inline-flex items-center gap-1.5 text-xs text-[#263727] hover:underline font-semibold"
-                >
-                  <Download className="w-3.5 h-3.5" /> Unduh Softfile
-                </a>
+                {/* Voice Note Capsule Floating Badge */}
+                {m.audioUrl && (
+                  <button
+                    type="button"
+                    onClick={(e) => handlePlayVoice(m.id, m.audioUrl, e)}
+                    className="absolute bottom-2.5 left-2.5 px-2 py-1 rounded-full text-[10px] font-cinzel font-semibold bg-black/60 text-[#E9DDC5] backdrop-blur-md border border-[#E9DDC5]/40 flex items-center gap-1 hover:bg-black/80 transition-all shadow"
+                    title="Putar Pesan Suara"
+                  >
+                    {activeAudioId === m.id ? (
+                      <Pause className="w-3 h-3 fill-[#E9DDC5]" />
+                    ) : (
+                      <Play className="w-3 h-3 fill-[#E9DDC5]" />
+                    )}
+                    <span>{m.audioDuration ? `${m.audioDuration}s` : 'Voice'}</span>
+                  </button>
+                )}
+              </div>
+
+              {/* Bottom Card Bar (Matching User Screenshot Layout) */}
+              <div className="px-3 py-2.5 bg-[#4a121a] flex flex-col justify-between">
+                {/* Guest Name in Bold Uppercase */}
+                <h4 className="font-cinzel font-bold text-xs sm:text-sm text-[#F6F4EE] tracking-wider uppercase truncate">
+                  {m.guestName}
+                </h4>
+
+                {/* Fine Horizontal Dividing Line */}
+                <div className="w-full h-[1px] bg-white/20 my-1.5" />
+
+                {/* Date on Left, Time on Right */}
+                <div className="flex items-center justify-between text-[9px] sm:text-[10px] text-white/80 font-cinzel tracking-wider">
+                  <span>{formatDate(m.createdAt)}</span>
+                  <span>{formatTime(m.createdAt)}</span>
+                </div>
               </div>
             </div>
           );
         })}
       </div>
 
-      {/* Elegant & Lightweight Memory Detail Modal (KisahKekal / Luxury Theme) */}
+      {/* Elegant Detail Pop-up Modal */}
       {selectedMemory && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 overflow-y-auto animate-wmfadein">
           <div className="relative w-full max-w-sm sm:max-w-md bg-[#263727] text-[#F6F4EE] rounded-[32px] border border-[#E9DDC5]/40 shadow-2xl p-5 sm:p-6 space-y-4 overflow-hidden animate-wmsheetin my-auto">
@@ -190,7 +173,7 @@ export default function ExploreMemories({ memories = [], onLike, likedMemoryIds 
             <div className="flex items-center justify-between pb-1 border-b border-white/10">
               <a
                 href={selectedMemory.stripUrl}
-                download={`wedding-photostrip-${(selectedMemory.guestName || 'memory').replace(/\s+/g, '-')}.png`}
+                download={`wedding-photostrip-${(selectedMemory.guestName || 'memory').replace(/\s+/g, '-')}.jpg`}
                 className="inline-flex items-center gap-1.5 text-xs font-cinzel font-bold text-[#F6F4EE] hover:text-[#E9DDC5] border-b border-[#E9DDC5] pb-0.5 tracking-wider transition-colors"
               >
                 <Download className="w-3.5 h-3.5" /> UNDUH SOFTFILE
@@ -223,7 +206,7 @@ export default function ExploreMemories({ memories = [], onLike, likedMemoryIds 
                 <div className="flex items-center gap-3">
                   <button
                     type="button"
-                    onClick={() => handlePlayVoice(selectedMemory.id, selectedMemory.audioUrl)}
+                    onClick={(e) => handlePlayVoice(selectedMemory.id, selectedMemory.audioUrl, e)}
                     className="w-10 h-10 rounded-full bg-[#263727] text-[#F6F4EE] flex items-center justify-center shadow hover:bg-[#1b281c] transition-transform active:scale-95"
                   >
                     {activeAudioId === selectedMemory.id ? (
@@ -274,19 +257,12 @@ export default function ExploreMemories({ memories = [], onLike, likedMemoryIds 
             {/* Footer: Date, Time, and Love Button */}
             <div className="pt-2 border-t border-white/15 flex items-center justify-between text-xs text-[#E9DDC5] font-cinzel">
               <span className="font-medium tracking-wider">
-                {new Date(selectedMemory.createdAt).toLocaleDateString('id-ID', {
-                  day: '2-digit',
-                  month: 'long',
-                  year: 'numeric',
-                }).toUpperCase()}
+                {formatDate(selectedMemory.createdAt)}
               </span>
 
               <div className="flex items-center gap-3">
                 <span className="tracking-wider text-[11px] text-[#F6F4EE]/80">
-                  {new Date(selectedMemory.createdAt).toLocaleTimeString('id-ID', {
-                    hour: '2-digit',
-                    minute: '2-digit',
-                  })} WIB
+                  {formatTime(selectedMemory.createdAt)}
                 </span>
 
                 <button
