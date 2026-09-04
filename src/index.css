@@ -1,0 +1,161 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --wm-green-900: #263727;
+    --wm-cream-50: #F6F4EE;
+    --wm-sand-200: #E9DDC5;
+    --wm-sand-100: #FAFAF3;
+    --wm-ink: #000000;
+    --wm-charcoal: #2A2A2A;
+    --wm-taupe: #999794;
+    --wm-mist: #CDCDCD;
+    --wm-red: #CB3A30;
+    --wm-white: #FFFFFF;
+
+    --font-display: "Cinzel", "Times New Roman", serif;
+    --font-body: "Inter Tight", "Plus Jakarta Sans", -apple-system, sans-serif;
+    --font-script: "Alex Brush", "Great Vibes", cursive;
+  }
+
+  html {
+    scroll-behavior: smooth;
+    font-family: var(--font-body);
+  }
+  
+  body {
+    background-color: var(--wm-cream-50);
+    color: var(--wm-ink);
+    min-height: 100vh;
+    overflow-x: hidden;
+    letter-spacing: 0.01em;
+  }
+}
+
+/* Custom Typography Classes */
+.font-cinzel {
+  font-family: var(--font-display);
+}
+
+.font-script {
+  font-family: var(--font-script);
+}
+
+.font-body {
+  font-family: var(--font-body);
+}
+
+/* KisahKekal Color Aliases */
+.bg-wm-green {
+  background-color: var(--wm-green-900);
+}
+.text-wm-green {
+  color: var(--wm-green-900);
+}
+.border-wm-green {
+  border-color: var(--wm-green-900);
+}
+
+.bg-wm-cream {
+  background-color: var(--wm-cream-50);
+}
+.text-wm-cream {
+  color: var(--wm-cream-50);
+}
+.border-wm-cream {
+  border-color: var(--wm-cream-50);
+}
+
+.bg-wm-sand {
+  background-color: var(--wm-sand-200);
+}
+.text-wm-sand {
+  color: var(--wm-sand-200);
+}
+
+.bg-wm-charcoal {
+  background-color: var(--wm-charcoal);
+}
+.text-wm-taupe {
+  color: var(--wm-taupe);
+}
+
+/* Animations */
+@keyframes wmpulse {
+  0%, 100% { transform: scaleY(0.35); }
+  50% { transform: scaleY(1); }
+}
+
+@keyframes wmring {
+  0% { transform: scale(0.8); opacity: 0.8; }
+  70% { opacity: 0.2; }
+  100% { transform: scale(1.6); opacity: 0; }
+}
+
+@keyframes wmbreathe {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; }
+}
+
+@keyframes wmprint {
+  0% { transform: translateY(-100%); }
+  100% { transform: translateY(0); }
+}
+
+@keyframes wmprintfade {
+  0% { opacity: 0; }
+  15% { opacity: 1; }
+  85% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+@keyframes wmfloat {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-6px); }
+}
+
+@keyframes wmsheetin {
+  from { transform: translateY(100%); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+@keyframes wmfadein {
+  from { opacity: 0; transform: scale(0.98); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+.animate-wmpulse {
+  animation: wmpulse 0.8s ease-in-out infinite;
+}
+
+.animate-wmring {
+  animation: wmring 2s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+
+.animate-wmbreathe {
+  animation: wmbreathe 2s ease-in-out infinite;
+}
+
+.animate-wmprint {
+  animation: wmprint 1.8s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+}
+
+.animate-wmfloat {
+  animation: wmfloat 3s ease-in-out infinite;
+}
+
+.animate-wmsheetin {
+  animation: wmsheetin 0.35s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+}
+
+.animate-wmfadein {
+  animation: wmfadein 0.28s ease-out forwards;
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 0px;
+  height: 0px;
+}
