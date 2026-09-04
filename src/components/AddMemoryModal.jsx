@@ -322,6 +322,7 @@ export default function AddMemoryModal({
                 activeFilter={activeFilter}
                 setActiveFilter={setActiveFilter}
                 slotCount={slotCount}
+                weddingSettings={weddingSettings}
               />
 
               <VoiceRecorder

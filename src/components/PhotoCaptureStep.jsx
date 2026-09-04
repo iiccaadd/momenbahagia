@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Camera, Upload, RotateCw, Trash2, Zap, Sparkles, Check, RefreshCw, ZoomIn, ZoomOut, Sliders } from 'lucide-react';
+import { Camera, Upload, RotateCw, Trash2, AlertCircle, RefreshCw } from 'lucide-react';
 
 const FILTERS = [
   { id: 'normal', name: 'Original', style: 'none' },
@@ -13,58 +13,126 @@ export default function PhotoCaptureStep({
   activeFilter = 'normal',
   setActiveFilter,
   slotCount = 3,
+  weddingSettings,
 }) {
   const [activeSlot, setActiveSlot] = useState(0);
   const [isCameraActive, setIsCameraActive] = useState(false);
+  const [isStartingCamera, setIsStartingCamera] = useState(false);
+  const [cameraError, setCameraError] = useState(null);
   const [countdown, setCountdown] = useState(null);
   const [facingMode, setFacingMode] = useState('user'); // 'user' or 'environment'
   const [flash, setFlash] = useState(false);
-  
-  // Adjust Photo Modal State
-  const [adjustingSlot, setAdjustingSlot] = useState(null);
-  const [adjustZoom, setAdjustZoom] = useState(1);
-  const [adjustPan, setAdjustPan] = useState({ x: 0, y: 0 });
 
   const videoRef = useRef(null);
   const streamRef = useRef(null);
   const fileInputRef = useRef(null);
 
+  // Derive wedding couple title
+  const groomName = weddingSettings?.couple?.groomName || "Irsyad";
+  const brideName = weddingSettings?.couple?.brideName || "Adisty";
+  const weddingTitle = `${groomName} & ${brideName}`;
+
   useEffect(() => {
-    startCamera();
+    startCamera(facingMode);
     return () => {
       stopCamera();
     };
   }, []);
 
+  const stopCamera = () => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => {
+        try {
+          track.stop();
+        } catch (e) {
+          console.warn('Error stopping track:', e);
+        }
+      });
+      streamRef.current = null;
+    }
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+    setIsCameraActive(false);
+  };
+
   const startCamera = async (mode = facingMode) => {
     stopCamera();
+    setCameraError(null);
+    setIsStartingCamera(true);
+
+    let stream = null;
+
+    // Multi-tier fallback to ensure camera compatibility across all devices/browsers
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
+      // 1. Try ideal resolution with specified facing mode
+      stream = await navigator.mediaDevices.getUserMedia({
         video: {
-          facingMode: mode,
+          facingMode: { ideal: mode },
           width: { ideal: 1280 },
           height: { ideal: 960 },
         },
         audio: false,
       });
+    } catch (err1) {
+      console.warn('Initial camera constraint failed, attempting facingMode fallback:', err1);
+      try {
+        // 2. Try simple facingMode
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: mode },
+          audio: false,
+        });
+      } catch (err2) {
+        console.warn('facingMode fallback failed, attempting basic video:', err2);
+        try {
+          // 3. Try standard basic video (best for desktops, laptops, custom webcams)
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: true,
+            audio: false,
+          });
+        } catch (err3) {
+          console.error('All camera initialization attempts failed:', err3);
+          let userMsg = 'Tidak dapat mengakses kamera. Pastikan izin kamera telah diberikan di browser Anda.';
+          if (err3.name === 'NotAllowedError' || err3.name === 'PermissionDeniedError') {
+            userMsg = 'Izin kamera ditolak. Silakan izinkan akses kamera di pengaturan browser atau klik "Coba Izinkan Kamera".';
+          } else if (err3.name === 'NotFoundError' || err3.name === 'DevicesNotFoundError') {
+            userMsg = 'Perangkat kamera tidak terdeteksi pada perangkat ini.';
+          } else if (err3.name === 'NotReadableError' || err3.name === 'TrackStartError') {
+            userMsg = 'Kamera sedang digunakan oleh aplikasi lain. Tutup aplikasi tersebut dan coba lagi.';
+          }
+          setCameraError(userMsg);
+          setIsCameraActive(false);
+          setIsStartingCamera(false);
+          return;
+        }
+      }
+    }
+
+    if (stream) {
       streamRef.current = stream;
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
+        try {
+          await videoRef.current.play();
+        } catch (playErr) {
+          console.warn('Video auto-play warning:', playErr);
+        }
       }
       setIsCameraActive(true);
-    } catch (err) {
-      console.warn('Camera access error:', err);
-      setIsCameraActive(false);
+      setCameraError(null);
     }
+    setIsStartingCamera(false);
   };
 
-  const stopCamera = () => {
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((track) => track.stop());
-      streamRef.current = null;
+  // Re-attach stream when element mounts or updates
+  useEffect(() => {
+    if (isCameraActive && videoRef.current && streamRef.current) {
+      if (videoRef.current.srcObject !== streamRef.current) {
+        videoRef.current.srcObject = streamRef.current;
+      }
+      videoRef.current.play().catch(console.warn);
     }
-    setIsCameraActive(false);
-  };
+  }, [isCameraActive]);
 
   const toggleCameraFacing = () => {
     const nextMode = facingMode === 'user' ? 'environment' : 'user';
@@ -141,8 +209,18 @@ export default function PhotoCaptureStep({
 
   return (
     <div className="space-y-4">
-      {/* Viewfinder Header info */}
-      <div className="flex items-center justify-between">
+      {/* 1. Header The Wedding of Nama Mempelai */}
+      <div className="text-center pb-1 border-b border-[#E9DDC5]/70">
+        <p className="text-[10px] tracking-[0.22em] text-[#999794] uppercase font-cinzel font-semibold">
+          THE WEDDING OF
+        </p>
+        <h4 className="font-playfair italic text-lg sm:text-xl font-bold text-[#263727] tracking-wide mt-0.5">
+          {weddingTitle}
+        </h4>
+      </div>
+
+      {/* 2. Viewfinder Slot Info */}
+      <div className="flex items-center justify-between px-1">
         <span className="text-xs font-bold uppercase tracking-wider text-[#263727] font-cinzel">
           Foto {activeSlot + 1} dari {slotCount}
         </span>
@@ -151,41 +229,74 @@ export default function PhotoCaptureStep({
         </span>
       </div>
 
-      {/* Main Viewfinder Box */}
+      {/* 3. Main Viewfinder Box */}
       <div className="relative w-full aspect-[4/3] rounded-2xl overflow-hidden bg-[#1a231b] border border-[#E9DDC5] shadow-inner flex items-center justify-center">
         {/* Flash Effect */}
         {flash && <div className="absolute inset-0 bg-white z-40 animate-pulse" />}
 
         {/* Countdown Overlay */}
         {countdown !== null && (
-          <div className="absolute inset-0 z-30 bg-black/50 backdrop-blur-xs flex items-center justify-center">
+          <div className="absolute inset-0 z-30 bg-black/60 backdrop-blur-xs flex items-center justify-center">
             <span className="text-7xl font-cinzel font-bold text-[#F6F4EE] animate-bounce">
               {countdown}
             </span>
           </div>
         )}
 
-        {isCameraActive ? (
-          <video
-            ref={videoRef}
-            autoPlay
-            playsInline
-            muted
-            className={`w-full h-full object-cover ${facingMode === 'user' ? 'scale-x-[-1]' : ''}`}
-          />
-        ) : (
-          <div className="text-center p-6 space-y-3">
-            <Camera className="w-10 h-10 text-[#999794] mx-auto opacity-50" />
-            <p className="text-xs text-[#F6F4EE]/70 max-w-[200px]">
-              Kamera tidak aktif atau belum diizinkan. Gunakan tombol galeri di bawah.
-            </p>
-            <button
-              type="button"
-              onClick={() => startCamera()}
-              className="px-4 py-2 rounded-full bg-[#F6F4EE] text-[#263727] text-xs font-semibold hover:bg-white shadow"
-            >
-              Aktifkan Kamera
-            </button>
+        {/* Live Camera Video (Always mounted to retain DOM ref) */}
+        <video
+          ref={videoRef}
+          autoPlay
+          playsInline
+          muted
+          onLoadedMetadata={() => {
+            if (videoRef.current) videoRef.current.play().catch(console.warn);
+          }}
+          onCanPlay={() => {
+            if (videoRef.current) videoRef.current.play().catch(console.warn);
+          }}
+          className={`w-full h-full object-cover transition-opacity duration-300 ${
+            isCameraActive ? 'opacity-100' : 'opacity-0'
+          } ${facingMode === 'user' ? 'scale-x-[-1]' : ''}`}
+        />
+
+        {/* Fallback & Error State Overlay (when camera is inactive/error) */}
+        {!isCameraActive && (
+          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center p-6 text-center bg-[#1a231b]/95 space-y-3">
+            {cameraError ? (
+              <AlertCircle className="w-10 h-10 text-amber-400 mx-auto animate-pulse" />
+            ) : (
+              <Camera className="w-10 h-10 text-[#999794] mx-auto opacity-70" />
+            )}
+
+            <div className="space-y-1 max-w-[280px]">
+              <p className="text-xs font-medium text-[#F6F4EE]">
+                {cameraError || 'Kamera sedang disiapkan...'}
+              </p>
+              <p className="text-[11px] text-[#F6F4EE]/60">
+                Atau Anda juga dapat mengunggah foto langsung dari Galeri HP/Komputer.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => startCamera(facingMode)}
+                disabled={isStartingCamera}
+                className="px-4 py-2 rounded-full bg-[#F6F4EE] text-[#263727] text-xs font-semibold hover:bg-white shadow flex items-center gap-1.5 transition-transform active:scale-95 disabled:opacity-60"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isStartingCamera ? 'animate-spin' : ''}`} />
+                {isStartingCamera ? 'Menghubungkan...' : 'Coba Aktifkan Kamera'}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="px-4 py-2 rounded-full bg-white/20 text-[#F6F4EE] text-xs font-medium hover:bg-white/30 shadow flex items-center gap-1.5 transition-transform active:scale-95"
+              >
+                <Upload className="w-3.5 h-3.5" /> Pilih dari Galeri
+              </button>
+            </div>
           </div>
         )}
 
@@ -194,7 +305,7 @@ export default function PhotoCaptureStep({
           <button
             type="button"
             onClick={toggleCameraFacing}
-            className="pointer-events-auto w-9 h-9 rounded-full bg-black/40 text-white backdrop-blur-md flex items-center justify-center hover:bg-black/60 shadow"
+            className="pointer-events-auto w-9 h-9 rounded-full bg-black/40 text-white backdrop-blur-md flex items-center justify-center hover:bg-black/60 shadow transition-transform active:scale-95"
             title="Pindah Kamera Depan/Belakang"
           >
             <RotateCw className="w-4 h-4" />
@@ -210,17 +321,17 @@ export default function PhotoCaptureStep({
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
-            className="pointer-events-auto px-3.5 py-1.5 rounded-full bg-black/40 text-white backdrop-blur-md text-xs font-medium flex items-center gap-1.5 hover:bg-black/60 shadow"
+            className="pointer-events-auto px-3.5 py-1.5 rounded-full bg-black/40 text-white backdrop-blur-md text-xs font-medium flex items-center gap-1.5 hover:bg-black/60 shadow transition-transform active:scale-95"
           >
             <Upload className="w-3.5 h-3.5" /> Galeri
           </button>
         </div>
 
-        {/* Center Guide Marks */}
-        <div className="absolute inset-0 pointer-events-none border-2 border-white/20 m-6 rounded-xl" />
+        {/* Center Guide Frame */}
+        <div className="absolute inset-0 pointer-events-none border border-white/20 m-6 rounded-xl" />
       </div>
 
-      {/* Capture Shutter & Action Bar */}
+      {/* 4. Capture Shutter Button */}
       <div className="flex items-center justify-center py-1">
         <button
           type="button"
@@ -234,7 +345,7 @@ export default function PhotoCaptureStep({
         </button>
       </div>
 
-      {/* Slots Preview Strip */}
+      {/* 5. Slots Preview Strip */}
       <div className="space-y-2">
         <div className="text-[11px] font-semibold text-[#263727] uppercase tracking-wider font-cinzel">
           Slot Foto ({slotCount} Foto):
@@ -289,7 +400,7 @@ export default function PhotoCaptureStep({
         </div>
       </div>
 
-      {/* Filter Selection Chips */}
+      {/* 6. Filter Selection Chips */}
       <div className="pt-2 border-t border-[#E9DDC5] space-y-2">
         <span className="text-[11px] font-bold text-[#263727] uppercase tracking-wider font-cinzel block">
           Pilih Efek Filter:
