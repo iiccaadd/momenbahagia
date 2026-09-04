@@ -256,11 +256,13 @@ app.get('/api/memories', (req, res) => {
   res.json({ success: true, data: storage.getMemories() });
 });
 
-// 8. Like a Memory
+// 8. Like / Unlike a Memory (Per IP address)
 app.post('/api/memories/:id/like', (req, res) => {
-  const updated = storage.toggleLike(req.params.id);
+  const clientIp = (req.headers['x-forwarded-for'] || req.socket.remoteAddress || req.ip || '127.0.0.1').split(',')[0].trim();
+  const updated = storage.toggleLike(req.params.id, clientIp);
   if (updated) {
     io.emit('memory:liked', { id: updated.id, likesCount: updated.likesCount });
+    broadcastMemories();
     res.json({ success: true, data: updated });
   } else {
     res.status(404).json({ success: false, message: 'Memory not found' });

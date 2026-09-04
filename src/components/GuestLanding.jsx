@@ -9,6 +9,8 @@ export default function GuestLanding({
   templates = [],
   memories = [],
   onLikeMemory,
+  likedMemoryIds = [],
+  onAddMemory,
   onOpenAdmin,
   onOpenProjector,
   isConnected = true,
@@ -20,16 +22,16 @@ export default function GuestLanding({
   const audioRef = useRef(null);
 
   const couple = weddingSettings?.couple || {
-    groomName: "Naufal",
-    brideName: "Fatimah",
-    displayNames: "Fatimah & Naufal",
-    formattedDate: "13 AGUSTUS 2026",
+    groomName: "Irsyad",
+    brideName: "Adisty",
+    displayNames: "Adisty & Irsyad",
+    formattedDate: "11 November 2026",
     subtitle: "WEDDING MEMORIES",
     tagline: "ABADIKAN SETIAP MOMEN INDAH DAN CIPTAKAN KENANGAN BERSAMA",
     quote: "LET’S CELEBRATE THIS DAY THROUGH YOUR EYES",
-    heroImage: "/assets/sample_couple.jpg",
-    bgmUrl: "/assets/romantic-wedding.mp3",
-    bgmTitle: "A Thousand Years - Romantic Piano",
+    heroImage: "/uploads/covers/1787992347172-237784708.jpg",
+    bgmUrl: "/uploads/audio/1788001682912-733496316.mp3",
+    bgmTitle: "PARAMORE-The_Only_Exception_.mp3",
   };
 
   const toggleBgm = () => {
@@ -244,6 +246,7 @@ export default function GuestLanding({
               <ExploreMemories
                 memories={memories}
                 onLike={onLikeMemory}
+                likedMemoryIds={likedMemoryIds}
               />
             </div>
           </div>
@@ -254,9 +257,10 @@ export default function GuestLanding({
       <AddMemoryModal
         isOpen={isAddModalOpen}
         onClose={() => setIsAddModalOpen(false)}
-        weddingSettings={couple}
+        weddingSettings={weddingSettings || { couple }}
         templates={templates}
         onMemorySubmitted={(newMem) => {
+          if (onAddMemory) onAddMemory(newMem);
           setIsAddModalOpen(false);
           setIsExploreOpen(true);
         }}

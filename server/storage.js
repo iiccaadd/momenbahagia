@@ -295,14 +295,29 @@ class Storage {
     return newEntry;
   }
 
-  toggleLike(id) {
+  toggleLike(id, clientIp = '127.0.0.1') {
     const memory = this.data.memories.find(m => m.id === id);
-    if (memory) {
-      memory.likesCount = (memory.likesCount || 0) + 1;
-      this.save();
-      return memory;
+    if (!memory) return null;
+
+    if (!Array.isArray(memory.likedIps)) {
+      memory.likedIps = [];
     }
-    return null;
+
+    const ip = String(clientIp).trim();
+    const existingIndex = memory.likedIps.indexOf(ip);
+
+    if (existingIndex > -1) {
+      // Unlove: Remove IP and decrement likes
+      memory.likedIps.splice(existingIndex, 1);
+      memory.likesCount = Math.max(0, (memory.likesCount || 1) - 1);
+    } else {
+      // Love: Add IP and increment likes
+      memory.likedIps.push(ip);
+      memory.likesCount = (memory.likesCount || 0) + 1;
+    }
+
+    this.save();
+    return memory;
   }
 
   togglePin(id) {

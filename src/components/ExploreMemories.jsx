@@ -1,7 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { Play, Pause, Heart, Download, Sparkles, MessageCircle, Volume2, User, Eye, X } from 'lucide-react';
 
-export default function ExploreMemories({ memories = [], onLike }) {
+export default function ExploreMemories({ memories = [], onLike, likedMemoryIds = [] }) {
   const [activeAudioId, setActiveAudioId] = useState(null);
   const [zoomImage, setZoomImage] = useState(null);
   const audioPlayerRef = useRef(null);
@@ -44,38 +44,52 @@ export default function ExploreMemories({ memories = [], onLike }) {
       />
 
       <div className="space-y-4">
-        {memories.map((m) => (
-          <div
-            key={m.id}
-            className="bg-white rounded-2xl p-4 shadow-sm border border-[#E9DDC5] space-y-3.5 transition-all hover:shadow-md"
-          >
-            {/* Header: Guest Name & Time */}
-            <div className="flex items-center justify-between border-b border-[#F6F4EE] pb-2">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-full bg-[#263727] text-[#F6F4EE] flex items-center justify-center text-xs font-bold font-cinzel">
-                  {m.guestName?.charAt(0)?.toUpperCase() || 'G'}
-                </div>
-                <div>
-                  <h4 className="font-cinzel font-bold text-xs sm:text-sm text-[#263727]">
-                    {m.guestName}
-                  </h4>
-                  <span className="text-[10px] text-[#999794]">
-                    {new Date(m.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} WIB
-                  </span>
-                </div>
-              </div>
+        {memories.map((m) => {
+          const isLiked = likedMemoryIds.includes(m.id);
 
-              <div className="flex items-center gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => onLike && onLike(m.id)}
-                  className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-[#F6F4EE] text-[#263727] hover:bg-[#E9DDC5] text-xs font-semibold transition-colors"
-                >
-                  <Heart className="w-3.5 h-3.5 fill-[#CB3A30] text-[#CB3A30]" />
-                  <span>{m.likesCount || 0}</span>
-                </button>
+          return (
+            <div
+              key={m.id}
+              className="bg-white rounded-2xl p-4 shadow-sm border border-[#E9DDC5] space-y-3.5 transition-all hover:shadow-md"
+            >
+              {/* Header: Guest Name & Time */}
+              <div className="flex items-center justify-between border-b border-[#F6F4EE] pb-2">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-full bg-[#263727] text-[#F6F4EE] flex items-center justify-center text-xs font-bold font-cinzel">
+                    {m.guestName?.charAt(0)?.toUpperCase() || 'G'}
+                  </div>
+                  <div>
+                    <h4 className="font-cinzel font-bold text-xs sm:text-sm text-[#263727]">
+                      {m.guestName}
+                    </h4>
+                    <span className="text-[10px] text-[#999794]">
+                      {new Date(m.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} WIB
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => onLike && onLike(m.id)}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-all active:scale-90 select-none shadow-xs ${
+                      isLiked
+                        ? 'bg-rose-50 text-[#E11D48] border border-rose-200 shadow-rose-100'
+                        : 'bg-[#F6F4EE] text-[#55524e] border border-[#E9DDC5] hover:bg-[#E9DDC5]/50'
+                    }`}
+                    title={isLiked ? "Batal menyukai (Klik untuk Unlove)" : "Sukai kenangan ini (Klik untuk Love)"}
+                  >
+                    <Heart
+                      className={`w-3.5 h-3.5 transition-all duration-200 ${
+                        isLiked ? 'fill-[#E11D48] text-[#E11D48] scale-110' : 'text-[#999794]'
+                      }`}
+                    />
+                    <span className={`font-bold ${isLiked ? 'text-[#E11D48]' : 'text-[#263727]'}`}>
+                      {m.likesCount || 0}
+                    </span>
+                  </button>
+                </div>
               </div>
-            </div>
 
             {/* Photostrip Image Card */}
             <div
@@ -155,7 +169,8 @@ export default function ExploreMemories({ memories = [], onLike }) {
               </a>
             </div>
           </div>
-        ))}
+        );
+      })}
       </div>
 
       {/* Full-Screen Zoom Modal */}
