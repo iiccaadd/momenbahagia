@@ -3,12 +3,42 @@ import { socket } from './socket';
 import GuestLanding from './components/GuestLanding';
 import AdminPanel from './components/AdminPanel';
 import ProjectorView from './components/ProjectorView';
+import { defaultWeddingData } from './defaultData';
 
 export default function App() {
   const [currentView, setCurrentView] = useState('guest'); // 'guest', 'admin', 'projector'
-  const [weddingSettings, setWeddingSettings] = useState(null);
-  const [templates, setTemplates] = useState([]);
-  const [memories, setMemories] = useState([]);
+  
+  // Initialize with saved local storage or rich defaults
+  const [weddingSettings, setWeddingSettings] = useState(() => {
+    try {
+      const local = localStorage.getItem('wedding_settings');
+      if (local) return JSON.parse(local);
+    } catch (e) {
+      console.warn('Failed reading wedding_settings from localStorage', e);
+    }
+    return defaultWeddingData;
+  });
+
+  const [templates, setTemplates] = useState(() => {
+    try {
+      const local = localStorage.getItem('wedding_templates');
+      if (local) return JSON.parse(local);
+    } catch (e) {
+      console.warn('Failed reading wedding_templates from localStorage', e);
+    }
+    return defaultWeddingData.templates;
+  });
+
+  const [memories, setMemories] = useState(() => {
+    try {
+      const local = localStorage.getItem('wedding_memories');
+      if (local) return JSON.parse(local);
+    } catch (e) {
+      console.warn('Failed reading wedding_memories from localStorage', e);
+    }
+    return defaultWeddingData.memories;
+  });
+
   const [latestMemory, setLatestMemory] = useState(null);
   const [isConnected, setIsConnected] = useState(socket.connected);
 
@@ -33,25 +63,34 @@ export default function App() {
 
   // Initial Fetch & Socket Listeners
   useEffect(() => {
-    // 1. Fetch REST Fallback
+    // 1. Fetch REST Fallback (if backend is active)
     fetch('/api/settings')
       .then((r) => r.json())
       .then((res) => {
         if (res.success && res.data) {
           setWeddingSettings(res.data);
-          if (res.data.templates) setTemplates(res.data.templates);
+          try { localStorage.setItem('wedding_settings', JSON.stringify(res.data)); } catch (e) {}
+          if (res.data.templates) {
+            setTemplates(res.data.templates);
+            try { localStorage.setItem('wedding_templates', JSON.stringify(res.data.templates)); } catch (e) {}
+          }
         }
       })
-      .catch(console.error);
+      .catch(() => {
+        // Standalone/Offline mode fallback
+      });
 
     fetch('/api/memories')
       .then((r) => r.json())
       .then((res) => {
         if (res.success && res.data) {
           setMemories(res.data);
+          try { localStorage.setItem('wedding_memories', JSON.stringify(res.data)); } catch (e) {}
         }
       })
-      .catch(console.error);
+      .catch(() => {
+        // Standalone/Offline mode fallback
+      });
 
     // 2. Realtime Socket Setup
     const onConnect = () => {

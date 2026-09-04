@@ -169,30 +169,60 @@ export default function AddMemoryModal({
         formData.append('audioDuration', audioData.duration || 0);
       }
 
-      const res = await fetch('/api/memories', {
-        method: 'POST',
-        body: formData,
+      let memoryData = null;
+      try {
+        const res = await fetch('/api/memories', {
+          method: 'POST',
+          body: formData,
+        });
+        if (res.ok) {
+          const json = await res.json();
+          if (json.success && json.data) {
+            memoryData = json.data;
+          }
+        }
+      } catch (err) {
+        console.warn('Backend API unavailable, saving to local standalone memory:', err);
+      }
+
+      // Standalone fallback if server response was not available
+      if (!memoryData) {
+        memoryData = {
+          id: `mem-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+          guestName: guestName.trim() || 'Tamu Spesial',
+          guestMessage: guestMessage.trim() || '',
+          stripUrl: generatedStripUrl,
+          rawPhotos: photos.filter(Boolean),
+          templateId: selectedTemplate?.id || 'classic',
+          audioUrl: audioData?.dataUrl || null,
+          audioDuration: audioData?.duration || 0,
+          createdAt: new Date().toISOString(),
+          likesCount: 1,
+          isPinned: false
+        };
+
+        try {
+          const existing = JSON.parse(localStorage.getItem('wedding_memories') || '[]');
+          localStorage.setItem('wedding_memories', JSON.stringify([memoryData, ...existing]));
+        } catch (e) {
+          console.warn('LocalStorage save error:', e);
+        }
+      }
+
+      setIsSuccess(true);
+      confetti({
+        particleCount: 100,
+        spread: 80,
+        origin: { y: 0.6 },
       });
 
-      const json = await res.json();
-      if (json.success) {
-        setIsSuccess(true);
-        confetti({
-          particleCount: 100,
-          spread: 80,
-          origin: { y: 0.6 },
-        });
-
-        setTimeout(() => {
-          if (onMemorySubmitted) onMemorySubmitted(json.data);
-          onClose();
-        }, 2200);
-      } else {
-        alert('Gagal mengirim kenangan: ' + (json.error || 'Silakan coba lagi.'));
-      }
+      setTimeout(() => {
+        if (onMemorySubmitted) onMemorySubmitted(memoryData);
+        onClose();
+      }, 2200);
     } catch (err) {
       console.error('Submit memory error:', err);
-      alert('Terjadi kesalahan saat mengirim kenangan.');
+      alert('Terjadi kesalahan saat memproses kenangan.');
     } finally {
       setIsSubmitting(false);
     }
