@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Camera, Volume2, VolumeX, Lock, Tv, Sparkles, X, ArrowLeft, Heart, Mail } from 'lucide-react';
 import ExploreMemories from './ExploreMemories';
 import AddMemoryModal from './AddMemoryModal';
