@@ -37,8 +37,8 @@ export default function ProjectorView({
   const SLIDE_DURATION = 7000; // 7s per slide
 
   const couple = weddingSettings?.couple || {
-    displayNames: "Atikah & Shafiq",
-    formattedDate: "08 AUGUST 2026",
+    displayNames: "Adisty & Irsyad",
+    formattedDate: "11 November 2026",
     subtitle: "LIVE WEDDING PHOTOBOOTH",
   };
 

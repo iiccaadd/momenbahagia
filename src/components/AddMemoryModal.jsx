@@ -78,8 +78,8 @@ export default function AddMemoryModal({
 
   if (!isOpen) return null;
 
-  const coupleNames = weddingSettings?.displayNames || "Fatimah & Naufal";
-  const weddingDate = weddingSettings?.formattedDate || "13 AGUSTUS 2026";
+  const coupleNames = weddingSettings?.couple?.displayNames || weddingSettings?.displayNames || "Adisty & Irsyad";
+  const weddingDate = weddingSettings?.couple?.formattedDate || weddingSettings?.formattedDate || "11 November 2026";
   const slotCount = selectedTemplate?.slotCount || 3;
 
   // Generate Photostrip Canvas for Step 4

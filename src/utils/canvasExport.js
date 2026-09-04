@@ -6,8 +6,8 @@
 export async function renderPhotostrip({
   template,
   photos, // array of image URLs or Image objects
-  coupleNames = "Atikah & Shafiq",
-  weddingDate = "08-08-2026",
+  coupleNames = "Adisty & Irsyad",
+  weddingDate = "11 November 2026",
   guestName = "",
   filter = "normal", // 'normal', 'bw', 'vintage', 'warm', 'rose', 'cool'
   stickers = [], // array of { type, x, y, size }

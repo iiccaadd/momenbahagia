@@ -43,16 +43,16 @@ export default function AdminPanel({
   const notify = useNotify();
   const [activeTab, setActiveTab] = useState('settings'); // 'settings', 'memories', 'templates', 'qrcode'
   const [formData, setFormData] = useState({
-    groomName: weddingSettings?.couple?.groomName || 'Shafiq',
-    brideName: weddingSettings?.couple?.brideName || 'Atikah',
-    displayNames: weddingSettings?.couple?.displayNames || 'Atikah & Shafiq',
-    formattedDate: weddingSettings?.couple?.formattedDate || '08 AUGUST 2026',
+    groomName: weddingSettings?.couple?.groomName || 'Irsyad',
+    brideName: weddingSettings?.couple?.brideName || 'Adisty',
+    displayNames: weddingSettings?.couple?.displayNames || 'Adisty & Irsyad',
+    formattedDate: weddingSettings?.couple?.formattedDate || '11 November 2026',
     subtitle: weddingSettings?.couple?.subtitle || 'WEDDING MEMORIES',
     tagline: weddingSettings?.couple?.tagline || 'CAPTURE EVERY BEAUTIFUL MOMENT AND CREATE MEMORIES TOGETHER',
-    quote: weddingSettings?.couple?.quote || "LET'S CELEBRATE THIS DAY THROUGH YOUR EYES",
-    heroImage: weddingSettings?.couple?.heroImage || '/assets/sample_couple.jpg',
-    bgmUrl: weddingSettings?.couple?.bgmUrl || '/assets/romantic-wedding.mp3',
-    bgmTitle: weddingSettings?.couple?.bgmTitle || 'Romantic Wedding Song',
+    quote: weddingSettings?.couple?.quote || "Snap a pic, leave a memory, help us celebrate our love story !",
+    heroImage: weddingSettings?.couple?.heroImage || '/uploads/covers/1787992347172-237784708.jpg',
+    bgmUrl: weddingSettings?.couple?.bgmUrl || '/uploads/audio/1788001682912-733496316.mp3',
+    bgmTitle: weddingSettings?.couple?.bgmTitle || 'PARAMORE-The_Only_Exception_.mp3',
   });
 
   const [isSaving, setIsSaving] = useState(false);
@@ -92,16 +92,16 @@ export default function AdminPanel({
   useEffect(() => {
     if (weddingSettings?.couple) {
       setFormData({
-        groomName: weddingSettings.couple.groomName || 'Shafiq',
-        brideName: weddingSettings.couple.brideName || 'Atikah',
-        displayNames: weddingSettings.couple.displayNames || 'Atikah & Shafiq',
-        formattedDate: weddingSettings.couple.formattedDate || '08 AUGUST 2026',
+        groomName: weddingSettings.couple.groomName || 'Irsyad',
+        brideName: weddingSettings.couple.brideName || 'Adisty',
+        displayNames: weddingSettings.couple.displayNames || 'Adisty & Irsyad',
+        formattedDate: weddingSettings.couple.formattedDate || '11 November 2026',
         subtitle: weddingSettings.couple.subtitle || 'WEDDING MEMORIES',
         tagline: weddingSettings.couple.tagline || 'CAPTURE EVERY BEAUTIFUL MOMENT AND CREATE MEMORIES TOGETHER',
-        quote: weddingSettings.couple.quote || "LET'S CELEBRATE THIS DAY THROUGH YOUR EYES",
-        heroImage: weddingSettings.couple.heroImage || '/assets/sample_couple.jpg',
-        bgmUrl: weddingSettings.couple.bgmUrl || '/assets/romantic-wedding.mp3',
-        bgmTitle: weddingSettings.couple.bgmTitle || 'Romantic Wedding Song',
+        quote: weddingSettings.couple.quote || "Snap a pic, leave a memory, help us celebrate our love story !",
+        heroImage: weddingSettings.couple.heroImage || '/uploads/covers/1787992347172-237784708.jpg',
+        bgmUrl: weddingSettings.couple.bgmUrl || '/uploads/audio/1788001682912-733496316.mp3',
+        bgmTitle: weddingSettings.couple.bgmTitle || 'PARAMORE-The_Only_Exception_.mp3',
       });
     }
   }, [weddingSettings]);

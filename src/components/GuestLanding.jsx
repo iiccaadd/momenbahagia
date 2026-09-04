@@ -157,14 +157,14 @@ export default function GuestLanding({
               {couple.subtitle || "WEDDING MEMORIES"}
             </h3>
             <h1 className="text-[#F6F4EE] font-script text-4xl sm:text-5xl drop-shadow-lg tracking-wide py-1 text-center">
-              {couple.displayNames || "Fatimah & Naufal"}
+              {couple.displayNames || "Adisty & Irsyad"}
             </h1>
           </div>
 
           {/* Bottom Hero Overlay (Date & Tagline) */}
           <div className="absolute bottom-5 inset-x-0 px-5 flex items-end justify-between text-[#F6F4EE] z-10">
             <div className="text-[11px] sm:text-xs font-cinzel font-medium tracking-[0.16em] drop-shadow-md">
-              {couple.formattedDate || "13 AGUSTUS 2026"}
+              {couple.formattedDate || "11 November 2026"}
             </div>
             <div className="text-[9px] uppercase font-sans tracking-widest text-right max-w-[160px] leading-tight drop-shadow-md opacity-90">
               {couple.tagline || "ABADIKAN SETIAP MOMEN INDAH DAN CIPTAKAN KENANGAN BERSAMA"}
