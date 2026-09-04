@@ -204,12 +204,15 @@ export default function AddMemoryModal({
           isPinned: false
         };
 
-        try {
-          const existing = JSON.parse(localStorage.getItem('wedding_memories') || '[]');
-          localStorage.setItem('wedding_memories', JSON.stringify([memoryData, ...existing]));
-        } catch (e) {
-          console.warn('LocalStorage save error:', e);
-        }
+      }
+
+      // Always persist to localStorage
+      try {
+        const existing = JSON.parse(localStorage.getItem('wedding_memories') || '[]');
+        const updated = [memoryData, ...existing.filter(m => m.id !== memoryData.id)];
+        localStorage.setItem('wedding_memories', JSON.stringify(updated));
+      } catch (e) {
+        console.warn('LocalStorage save error:', e);
       }
 
       setIsSuccess(true);
