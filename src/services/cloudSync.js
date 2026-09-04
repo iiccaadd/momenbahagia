@@ -1,4 +1,4 @@
-import { defaultWeddingData } from '../defaultData';
+﻿import { defaultWeddingData } from '../defaultData';
 import {
   getAllMemoriesDB,
   saveMemoryDB,
@@ -6,8 +6,11 @@ import {
   deleteMemoryDB,
   onMemoryBroadcast
 } from './dbStorage';
+import { supabase, isSupabaseConfigured } from './supabaseClient';
 
-// Generate or retrieve persistent anonymous device ID for single like/unlike tracking
+// ─────────────────────────────────────────────────────────────────────────────
+// Device ID (used for per-device like tracking)
+// ─────────────────────────────────────────────────────────────────────────────
 export function getDeviceId() {
   try {
     let id = localStorage.getItem('wedding_device_id');
@@ -21,18 +24,16 @@ export function getDeviceId() {
   }
 }
 
-/**
- * Merge local and remote memories without ever losing or overwriting user's photos
- */
+// ─────────────────────────────────────────────────────────────────────────────
+// Merge local + remote memories without losing any photos
+// ─────────────────────────────────────────────────────────────────────────────
 export function mergeMemories(localList = [], remoteList = []) {
   const map = new Map();
 
-  // 1. Seed with default template memories
   (defaultWeddingData.memories || []).forEach((m) => {
     if (m && m.id) map.set(m.id, { ...m });
   });
 
-  // 2. Merge remote list
   if (Array.isArray(remoteList)) {
     remoteList.forEach((m) => {
       if (m && m.id) {
@@ -42,7 +43,6 @@ export function mergeMemories(localList = [], remoteList = []) {
     });
   }
 
-  // 3. Merge local list (highest priority for user's created content)
   if (Array.isArray(localList)) {
     localList.forEach((m) => {
       if (m && m.id) {
@@ -53,45 +53,85 @@ export function mergeMemories(localList = [], remoteList = []) {
   }
 
   const result = Array.from(map.values());
-  // Sort latest first
   result.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
   return result;
 }
 
-/**
- * Fetch memories from IndexedDB, serverless backend, and local storage
- */
+// ─────────────────────────────────────────────────────────────────────────────
+// Map Supabase row → app memory object
+// ─────────────────────────────────────────────────────────────────────────────
+function rowToMemory(row) {
+  return {
+    id: row.id,
+    guestName: row.guest_name,
+    message: row.message,
+    stripImage: row.strip_image,
+    galleryPhotos: Array.isArray(row.gallery_photos) ? row.gallery_photos : [],
+    likedIps: Array.isArray(row.liked_ips) ? row.liked_ips : [],
+    likesCount: row.likes_count || 0,
+    createdAt: row.created_at,
+    templateId: row.template_id,
+    frameColor: row.frame_color,
+    stickerOverlay: row.sticker_overlay,
+    filterName: row.filter_name,
+  };
+}
+
+// Map app memory object → Supabase row
+function memoryToRow(mem) {
+  return {
+    id: mem.id,
+    guest_name: mem.guestName || mem.guest_name || '',
+    message: mem.message || '',
+    strip_image: mem.stripImage || mem.strip_image || null,
+    gallery_photos: mem.galleryPhotos || mem.gallery_photos || [],
+    liked_ips: mem.likedIps || mem.liked_ips || [],
+    likes_count: mem.likesCount || mem.likes_count || 0,
+    created_at: mem.createdAt || mem.created_at || new Date().toISOString(),
+    template_id: mem.templateId || mem.template_id || null,
+    frame_color: mem.frameColor || mem.frame_color || null,
+    sticker_overlay: mem.stickerOverlay || mem.sticker_overlay || null,
+    filter_name: mem.filterName || mem.filter_name || null,
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Fetch all memories: Supabase first, fallback to IndexedDB
+// ─────────────────────────────────────────────────────────────────────────────
 export async function fetchOnlineMemories() {
-  // 1. Always load local IndexedDB first (lightning-fast, 100% persistent)
+  // 1. Load local IndexedDB (always fast & offline-safe)
   let localMemories = [];
   try {
     localMemories = await getAllMemoriesDB();
   } catch (err) {
-    console.warn('Error reading from IndexedDB:', err);
+    console.warn('IndexedDB read error:', err);
   }
 
   let remoteMemories = [];
 
-  // 2. Attempt fetching from Backend API / Vercel Serverless
-  try {
-    const res = await fetch('/api/memories', { cache: 'no-store' });
-    if (res.ok) {
-      const contentType = res.headers.get('content-type') || '';
-      if (contentType.includes('application/json')) {
-        const json = await res.json();
-        if (json && json.success && Array.isArray(json.data)) {
-          remoteMemories = json.data;
-        }
+  // 2. Fetch from Supabase (cross-device cloud)
+  if (isSupabaseConfigured && supabase) {
+    try {
+      const { data, error } = await supabase
+        .from('memories')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(200);
+
+      if (!error && Array.isArray(data)) {
+        remoteMemories = data.map(rowToMemory);
+      } else if (error) {
+        console.warn('Supabase fetch error:', error.message);
       }
+    } catch (e) {
+      console.warn('Supabase unreachable:', e);
     }
-  } catch (e) {
-    // API not available or offline
   }
 
-  // 3. Merge memories safely so no photos are ever wiped out
+  // 3. Merge: remote wins for shared data, local wins for user's own content
   const combined = mergeMemories(localMemories, remoteMemories);
 
-  // 4. Update IndexedDB in background
+  // 4. Update IndexedDB with fresh remote data in background
   if (remoteMemories.length > 0) {
     saveBulkMemoriesDB(remoteMemories).catch(() => {});
   }
@@ -99,61 +139,110 @@ export async function fetchOnlineMemories() {
   return combined;
 }
 
-/**
- * Save new guest memory to IndexedDB and broadcast online
- */
+// ─────────────────────────────────────────────────────────────────────────────
+// Save a new guest memory to Supabase AND IndexedDB
+// ─────────────────────────────────────────────────────────────────────────────
 export async function saveMemoryOnline(newMemory) {
   if (!newMemory || !newMemory.id) return;
 
-  // 1. Save to IndexedDB immediately (instant persistence)
+  // 1. Save to IndexedDB immediately (instant, offline-safe)
   await saveMemoryDB(newMemory);
 
-  // 2. Send to Backend API / Serverless endpoint
-  try {
-    await fetch('/api/memories', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(newMemory)
-    });
-  } catch (e) {
-    console.warn('API post error (local saved):', e);
+  // 2. Upsert to Supabase (cloud, cross-device)
+  if (isSupabaseConfigured && supabase) {
+    try {
+      const row = memoryToRow(newMemory);
+      const { error } = await supabase
+        .from('memories')
+        .upsert(row, { onConflict: 'id' });
+
+      if (error) {
+        console.warn('Supabase save error:', error.message);
+      }
+    } catch (e) {
+      console.warn('Supabase save exception:', e);
+    }
   }
 }
 
-/**
- * Toggle Love / Unlove per device and sync
- */
+// ─────────────────────────────────────────────────────────────────────────────
+// Toggle like/unlike — updates both IndexedDB and Supabase
+// ─────────────────────────────────────────────────────────────────────────────
 export async function toggleLikeOnline(memoryId, isLiked) {
   const deviceId = getDeviceId();
 
   try {
     const all = await getAllMemoriesDB();
     const target = all.find((m) => m.id === memoryId);
-    if (target) {
-      if (!Array.isArray(target.likedIps)) target.likedIps = [];
-      const hasId = target.likedIps.includes(deviceId);
+    if (!target) return;
 
-      if (isLiked && !hasId) {
-        target.likedIps.push(deviceId);
-        target.likesCount = (target.likesCount || 0) + 1;
-      } else if (!isLiked && hasId) {
-        target.likedIps = target.likedIps.filter((id) => id !== deviceId);
-        target.likesCount = Math.max(0, (target.likesCount || 1) - 1);
-      }
+    if (!Array.isArray(target.likedIps)) target.likedIps = [];
+    const hasId = target.likedIps.includes(deviceId);
 
-      await saveMemoryDB(target);
+    if (isLiked && !hasId) {
+      target.likedIps.push(deviceId);
+      target.likesCount = (target.likesCount || 0) + 1;
+    } else if (!isLiked && hasId) {
+      target.likedIps = target.likedIps.filter((id) => id !== deviceId);
+      target.likesCount = Math.max(0, (target.likesCount || 1) - 1);
+    }
 
+    await saveMemoryDB(target);
+
+    // Sync to Supabase
+    if (isSupabaseConfigured && supabase) {
       try {
-        await fetch(`/api/memories/${memoryId}/like`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ isLiked, deviceId })
-        });
+        await supabase
+          .from('memories')
+          .update({
+            liked_ips: target.likedIps,
+            likes_count: target.likesCount,
+          })
+          .eq('id', memoryId);
       } catch (e) {}
     }
   } catch (e) {
-    console.warn('Like toggle sync warning:', e);
+    console.warn('Like toggle error:', e);
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Delete a memory from Supabase
+// ─────────────────────────────────────────────────────────────────────────────
+export async function deleteMemoryOnline(memoryId) {
+  await deleteMemoryDB(memoryId);
+
+  if (isSupabaseConfigured && supabase) {
+    try {
+      await supabase.from('memories').delete().eq('id', memoryId);
+    } catch (e) {
+      console.warn('Supabase delete error:', e);
+    }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Subscribe to Supabase Realtime for instant cross-device updates
+// ─────────────────────────────────────────────────────────────────────────────
+export function subscribeToMemories(onNewMemory) {
+  if (!isSupabaseConfigured || !supabase) return () => {};
+
+  const channel = supabase
+    .channel('memories-realtime')
+    .on(
+      'postgres_changes',
+      { event: 'INSERT', schema: 'public', table: 'memories' },
+      (payload) => {
+        if (payload.new) {
+          const mem = rowToMemory(payload.new);
+          saveMemoryDB(mem).catch(() => {});
+          onNewMemory(mem);
+        }
+      }
+    )
+    .subscribe();
+
+  return () => supabase.removeChannel(channel);
 }
 
 export { onMemoryBroadcast };

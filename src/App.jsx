@@ -9,9 +9,10 @@ import {
   saveMemoryOnline,
   toggleLikeOnline,
   mergeMemories,
-  onMemoryBroadcast
+  onMemoryBroadcast,
+  deleteMemoryOnline,
+  subscribeToMemories
 } from './services/cloudSync';
-import { deleteMemoryDB } from './services/dbStorage';
 
 export default function App() {
   const [currentView, setCurrentView] = useState('guest'); // 'guest', 'admin', 'projector'
@@ -125,11 +126,18 @@ export default function App() {
       }
     });
 
+    // Supabase Realtime — instant cross-device sync when a new photo is uploaded
+    const unsubscribeSupabase = subscribeToMemories((newMem) => {
+      setLatestMemory(newMem);
+      setMemories((prev) => mergeMemories(prev, [newMem]));
+    });
+
     return () => {
       clearInterval(interval);
       window.removeEventListener('visibilitychange', onVisibilityChange);
       window.removeEventListener('focus', syncData);
       unsubscribeBroadcast();
+      unsubscribeSupabase();
     };
   }, []);
 
@@ -202,20 +210,11 @@ export default function App() {
 
   const handleDeleteMemory = async (id) => {
     setMemories((prev) => prev.filter((m) => m.id !== id));
-    await deleteMemoryDB(id);
-    try {
-      await fetch(`/api/memories/${id}`, { method: 'DELETE' });
-    } catch (err) {
-      console.error('Error deleting memory:', err);
-    }
+    await deleteMemoryOnline(id);
   };
 
-  const handlePinMemory = async (id) => {
-    try {
-      await fetch(`/api/memories/${id}/pin`, { method: 'POST' });
-    } catch (err) {
-      console.error('Error pinning memory:', err);
-    }
+  const handlePinMemory = async (_id) => {
+    // Pin feature reserved for future implementation
   };
 
   return (
