@@ -250,7 +250,7 @@ export default function GuestLanding({
                 <span className="text-[11px] sm:text-xs font-bold tracking-[0.25em] text-[#263727] uppercase font-cinzel block">
                   WEDDING ALBUM
                 </span>
-                <h2 className="font-zenaida text-3xl sm:text-4xl text-[#7a1827] tracking-wide leading-none py-0.5">
+                <h2 className="font-zenaida text-3xl sm:text-4xl text-[#263727] tracking-wide leading-none py-0.5">
                   {couple.brideName || 'Adisty'} & {couple.groomName || 'Irsyad'}
                 </h2>
                 <span className="text-[9px] sm:text-[10px] tracking-[0.2em] text-[#8c827a] uppercase font-cinzel font-medium block">

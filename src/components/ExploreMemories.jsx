@@ -94,10 +94,10 @@ export default function ExploreMemories({
             <div
               key={m.id}
               onClick={() => setSelectedMemory(m)}
-              className="group relative flex flex-col bg-[#4a121a] text-[#F6F4EE] rounded-2xl sm:rounded-[22px] overflow-hidden border border-[#E9DDC5]/30 shadow-md hover:shadow-xl transition-all duration-300 hover:scale-[1.01] cursor-pointer select-none"
+              className="group relative flex flex-col bg-[#263727] text-[#F6F4EE] rounded-2xl sm:rounded-[22px] overflow-hidden border border-[#E9DDC5]/40 shadow-md hover:shadow-xl transition-all duration-300 hover:scale-[1.01] cursor-pointer select-none"
             >
               {/* Photostrip Image Preview Area */}
-              <div className="w-full bg-[#360d13] p-1 sm:p-1.5 flex items-center justify-center relative overflow-hidden">
+              <div className="w-full bg-[#1d2b1e] p-1 sm:p-1.5 flex items-center justify-center relative overflow-hidden">
                 <img
                   src={m.stripUrl}
                   alt={m.guestName}
@@ -144,8 +144,8 @@ export default function ExploreMemories({
                 )}
               </div>
 
-              {/* Bottom Card Bar (Matching User Screenshot Layout) */}
-              <div className="px-3 py-2.5 bg-[#4a121a] flex flex-col justify-between">
+              {/* Bottom Card Bar (Matching User Screenshot Layout in Sage Green) */}
+              <div className="px-3 py-2.5 bg-[#263727] flex flex-col justify-between">
                 {/* Guest Name in Bold Uppercase */}
                 <h4 className="font-cinzel font-bold text-xs sm:text-sm text-[#F6F4EE] tracking-wider uppercase truncate">
                   {m.guestName}
