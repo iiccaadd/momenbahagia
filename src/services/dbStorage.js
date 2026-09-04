@@ -54,26 +54,19 @@ export async function getAllMemoriesDB() {
       request.onerror = () => reject(request.error);
     });
 
-    if (items.length === 0) {
-      // Seed with default memories
-      const initial = defaultWeddingData.memories || [];
-      for (const m of initial) {
-        await saveMemoryDB(m, false);
-      }
-      return initial;
+    if (items && items.length > 0) {
+      items.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+      return items;
     }
-
-    // Sort by createdAt descending
-    items.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-    return items;
   } catch (err) {
     console.warn('IndexedDB read fallback to localStorage:', err);
-    try {
-      const cached = JSON.parse(localStorage.getItem('wedding_memories') || '[]');
-      if (Array.isArray(cached) && cached.length > 0) return cached;
-    } catch (e) {}
-    return defaultWeddingData.memories || [];
   }
+
+  try {
+    const cached = JSON.parse(localStorage.getItem('wedding_memories') || '[]');
+    if (Array.isArray(cached) && cached.length > 0) return cached;
+  } catch (e) {}
+  return defaultWeddingData.memories || [];
 }
 
 /**
