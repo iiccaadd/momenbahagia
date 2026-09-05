@@ -183,12 +183,9 @@ export default function AddMemoryModal({
         isPinned: false
       };
 
-      // 1. Save to IndexedDB + push to Supabase cloud
-      await saveMemoryOnline(memoryData);
-
-      // 2. Notify parent state
+      // Pass to onMemorySubmitted which saves to IndexedDB + Supabase cloud
       if (onMemorySubmitted) {
-        onMemorySubmitted(memoryData);
+        await onMemorySubmitted(memoryData);
       }
 
       setIsSuccess(true);

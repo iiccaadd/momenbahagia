@@ -406,7 +406,7 @@ export default function ProjectorView({
 
               {/* Photostrip Image */}
               <img
-                src={currentMem.stripUrl}
+                src={currentMem.stripImage || currentMem.stripUrl}
                 alt={currentMem.guestName}
                 className="max-h-[60vh] w-auto rounded-2xl object-contain shadow-2xl drop-shadow-[0_20px_35px_rgba(0,0,0,0.8)]"
               />
@@ -570,7 +570,7 @@ export default function ProjectorView({
               {showCelebration.guestName}
             </div>
             <div className="text-xs text-white/80 italic truncate max-w-[280px]">
-              {showCelebration.guestMessage || 'Telah membagikan photostrip kenangan indahnya! 🥂'}
+              {showCelebration.message || showCelebration.guestMessage || 'Telah membagikan photostrip kenangan indahnya! 🥂'}
             </div>
           </div>
         </div>
@@ -594,7 +594,7 @@ export default function ProjectorView({
                 title={`Lihat foto ${m.guestName}`}
               >
                 <img
-                  src={m.stripUrl}
+                  src={m.stripImage || m.stripUrl}
                   alt={m.guestName}
                   className="w-full h-full object-cover"
                 />

@@ -34,8 +34,7 @@ export default function App() {
   });
 
   const [memories, setMemories] = useState(() => {
-    // Start with empty so we always show fresh cloud data first
-    return [];
+    return defaultWeddingData.memories || [];
   });
 
   const [likedMemoryIds, setLikedMemoryIds] = useState(() => {
@@ -49,6 +48,7 @@ export default function App() {
   const [latestMemory, setLatestMemory] = useState(null);
   const [isConnected, setIsConnected] = useState(false);
   const [syncCount, setSyncCount] = useState(0);
+  const [cloudError, setCloudError] = useState(null);
 
   // Hash-based routing
   useEffect(() => {
@@ -75,43 +75,44 @@ export default function App() {
     const syncData = async () => {
       try {
         const result = await fetchOnlineMemories();
-        const cloudMems = result.memories ?? result; // backwards-compat
-        const connected = result.isCloudConnected ?? isSupabaseConfigured;
+        const cloudMems = result.memories ?? [];
+        const connected = result.isCloudConnected ?? false;
 
         setIsConnected(connected);
+        if (result.schemaError) {
+          setCloudError(result.schemaError);
+        } else {
+          setCloudError(null);
+        }
 
         if (Array.isArray(cloudMems) && cloudMems.length > 0) {
           setMemories((prev) => {
-            // Deep equality check to avoid unnecessary re-renders
             const next = cloudMems;
-            const prevIds = prev.map((m) => m.id + (m.likesCount || 0)).join(',');
-            const nextIds = next.map((m) => m.id + (m.likesCount || 0)).join(',');
-            if (prevIds === nextIds && prev.length === next.length) return prev;
+            const prevSignature = prev.map((m) => m.id + ':' + (m.likesCount || 0)).join('|');
+            const nextSignature = next.map((m) => m.id + ':' + (m.likesCount || 0)).join('|');
+            if (prevSignature === nextSignature && prev.length === next.length) return prev;
             return next;
           });
           setSyncCount((n) => n + 1);
-        } else if (Array.isArray(cloudMems) && cloudMems.length === 0 && !connected) {
-          // Supabase not configured — show default template data
-          setMemories(defaultWeddingData.memories || []);
         }
       } catch (e) {
         console.warn('[App] Sync error:', e);
       }
     };
 
-    // Immediate first load
+    // Immediate initial sync
     syncData();
 
-    // Poll every 5 seconds for cross-device updates
+    // Poll every 5s for cross-device updates
     const interval = setInterval(syncData, 5000);
 
-    // Extra sync on tab focus (user returns to app)
+    // Sync on tab refocus
     const onFocus = () => syncData();
     const onVisible = () => { if (document.visibilityState === 'visible') syncData(); };
     window.addEventListener('focus', onFocus);
     window.addEventListener('visibilitychange', onVisible);
 
-    // BroadcastChannel — same-device multi-tab sync (instant)
+    // BroadcastChannel — same-device multi-tab sync
     const unsubscribeBroadcast = onMemoryBroadcast((data) => {
       if (data?.type === 'MEMORY_SAVED' && data.memory) {
         setLatestMemory(data.memory);
@@ -121,15 +122,27 @@ export default function App() {
       }
     });
 
-    // Supabase Realtime — different-device instant push (no polling needed)
-    const unsubscribeRealtime = subscribeToMemories((newMem) => {
-      console.log('[Realtime] New photo from another device:', newMem.guestName);
-      setLatestMemory(newMem);
-      setMemories((prev) => {
-        const exists = prev.find((m) => m.id === newMem.id);
-        if (exists) return prev;
-        return [newMem, ...prev];
-      });
+    // Supabase Realtime — cross-device instant sync
+    const unsubscribeRealtime = subscribeToMemories({
+      onNewMemory: (newMem) => {
+        console.log('[Realtime] New memory from another device:', newMem.guestName);
+        setLatestMemory(newMem);
+        setMemories((prev) => {
+          const exists = prev.some((m) => m.id === newMem.id);
+          if (exists) return prev;
+          return [newMem, ...prev];
+        });
+      },
+      onUpdateMemory: (updatedMem) => {
+        console.log('[Realtime] Memory updated:', updatedMem.id);
+        setMemories((prev) =>
+          prev.map((m) => (m.id === updatedMem.id ? { ...m, ...updatedMem } : m))
+        );
+      },
+      onDeleteMemory: (deletedId) => {
+        console.log('[Realtime] Memory deleted:', deletedId);
+        setMemories((prev) => prev.filter((m) => m.id !== deletedId));
+      }
     });
 
     return () => {
@@ -146,11 +159,19 @@ export default function App() {
   // ─────────────────────────────────────────────────────────────────────────────
   const handleAddNewMemory = async (newMem) => {
     if (!newMem) return;
-    // Optimistic UI — show immediately on this device
+    // Optimistic UI — display immediately on this device
     setLatestMemory(newMem);
     setMemories((prev) => [newMem, ...prev.filter((m) => m.id !== newMem.id)]);
-    // Push to cloud (Supabase will trigger Realtime on other devices)
-    await saveMemoryOnline(newMem);
+
+    // Save to local IndexedDB and upload to Supabase cloud
+    const result = await saveMemoryOnline(newMem);
+    if (!result?.success) {
+      console.warn('[App] Save to cloud issue:', result?.error);
+      if (result?.code === 'PGRST204' || result?.error?.includes('guest_name')) {
+        setCloudError('Kolom tabel memories di Supabase belum sesuai. Silakan jalankan SQL migrasi di SQL Editor Supabase.');
+      }
+    }
+    return result;
   };
 
   const handleLikeMemory = async (id) => {
@@ -184,6 +205,18 @@ export default function App() {
 
   return (
     <div className="w-full min-h-screen bg-[#faf8f5]">
+      {cloudError && (
+        <div className="fixed top-0 inset-x-0 z-50 bg-amber-500 text-white text-xs font-semibold px-4 py-2 text-center shadow-md flex items-center justify-between">
+          <span>⚠️ {cloudError}</span>
+          <button
+            onClick={() => setCloudError(null)}
+            className="ml-2 underline font-bold"
+          >
+            Tutup
+          </button>
+        </div>
+      )}
+
       {currentView === 'guest' && (
         <GuestLanding
           weddingSettings={weddingSettings}

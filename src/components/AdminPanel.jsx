@@ -683,7 +683,7 @@ export default function AdminPanel({
 
                     <div className="rounded-2xl overflow-hidden bg-[#faf8f5] p-2 flex justify-center mb-3">
                       <img
-                        src={m.stripUrl}
+                        src={m.stripImage || m.stripUrl}
                         alt={m.guestName}
                         className="max-h-[220px] w-auto rounded-lg object-contain"
                       />
@@ -708,9 +708,9 @@ export default function AdminPanel({
                       </div>
                     )}
 
-                    {m.guestMessage && (
+                    {(m.message || m.guestMessage) && (
                       <div className="text-xs text-[#5e4b3c] italic bg-[#fcfaf7] p-2.5 rounded-xl border border-[#efe9e0] mb-3">
-                        "{m.guestMessage}"
+                        "{m.message || m.guestMessage}"
                       </div>
                     )}
                   </div>
@@ -718,7 +718,7 @@ export default function AdminPanel({
                   <div className="pt-2 border-t border-[#f1ede8] flex items-center justify-between text-xs">
                     <span className="text-[#8c7b6d]">💖 {m.likesCount || 0} Suka</span>
                     <a
-                      href={m.stripUrl}
+                      href={m.stripImage || m.stripUrl}
                       download={`photostrip-${m.guestName}.png`}
                       className="inline-flex items-center gap-1 text-[#c5a880] hover:underline font-medium"
                     >
