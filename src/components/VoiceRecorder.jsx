@@ -16,22 +16,40 @@ export default function VoiceRecorder({ onRecordingComplete, onRemoveAudio }) {
   const timerRef = useRef(null);
   const audioPlayerRef = useRef(null);
 
+  const recordingTimeRef = useRef(0);
+
   useEffect(() => {
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
-      if (audioUrl) URL.revokeObjectURL(audioUrl);
     };
-  }, [audioUrl]);
+  }, []);
 
   const startRecording = async () => {
     audioChunksRef.current = [];
     setAudioBlob(null);
     setAudioUrl(null);
     setRecordingTime(0);
+    recordingTimeRef.current = 0;
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mediaRecorder = new MediaRecorder(stream);
+
+      // Cross-platform audio format detection (Chrome, Firefox, Safari iOS/macOS)
+      let mimeType = '';
+      if (typeof MediaRecorder.isTypeSupported === 'function') {
+        if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
+          mimeType = 'audio/webm;codecs=opus';
+        } else if (MediaRecorder.isTypeSupported('audio/webm')) {
+          mimeType = 'audio/webm';
+        } else if (MediaRecorder.isTypeSupported('audio/mp4')) {
+          mimeType = 'audio/mp4';
+        } else if (MediaRecorder.isTypeSupported('audio/aac')) {
+          mimeType = 'audio/aac';
+        }
+      }
+
+      const options = mimeType ? { mimeType } : {};
+      const mediaRecorder = new MediaRecorder(stream, options);
       mediaRecorderRef.current = mediaRecorder;
 
       mediaRecorder.ondataavailable = (event) => {
@@ -41,17 +59,29 @@ export default function VoiceRecorder({ onRecordingComplete, onRemoveAudio }) {
       };
 
       mediaRecorder.onstop = () => {
-        const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-        const url = URL.createObjectURL(blob);
+        const actualMime = mediaRecorder.mimeType || mimeType || 'audio/webm';
+        const blob = new Blob(audioChunksRef.current, { type: actualMime });
+        const previewUrl = URL.createObjectURL(blob);
+        const finalDuration = Math.max(1, recordingTimeRef.current);
+
         setAudioBlob(blob);
-        setAudioUrl(url);
-        if (onRecordingComplete) {
-          onRecordingComplete({
-            blob: blob,
-            url: url,
-            duration: recordingTime,
-          });
-        }
+        setAudioUrl(previewUrl);
+
+        // Convert audio to persistent base64 data URL
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          const base64Audio = reader.result;
+          if (onRecordingComplete) {
+            onRecordingComplete({
+              blob: blob,
+              url: previewUrl,
+              dataUrl: base64Audio,
+              duration: finalDuration,
+            });
+          }
+        };
+        reader.readAsDataURL(blob);
+
         // Stop audio tracks
         stream.getTracks().forEach((track) => track.stop());
       };
@@ -60,7 +90,11 @@ export default function VoiceRecorder({ onRecordingComplete, onRemoveAudio }) {
       setIsRecording(true);
 
       timerRef.current = setInterval(() => {
-        setRecordingTime((prev) => prev + 1);
+        setRecordingTime((prev) => {
+          const next = prev + 1;
+          recordingTimeRef.current = next;
+          return next;
+        });
       }, 1000);
     } catch (err) {
       console.error('Microphone error:', err);

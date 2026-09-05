@@ -1,4 +1,4 @@
-﻿import { defaultWeddingData } from '../defaultData';
+import { defaultWeddingData } from '../defaultData';
 import {
   getAllMemoriesDB,
   saveMemoryDB,
@@ -62,29 +62,43 @@ export function mergeMemories(localList = [], remoteList = []) {
         const isDefaultItem = (defaultWeddingData.memories || []).some((d) => d.id === m.id);
         if (hasAnyRealData && isDefaultItem) return;
 
+        const strip = m.stripUrl || m.stripImage || null;
+        const msg = m.message || m.guestMessage || '';
+        const audio = m.audioUrl || m.audio_url || null;
+        const audioDur = m.audioDuration || m.audio_duration || 0;
+
         map.set(m.id, {
           ...m,
-          stripUrl: m.stripUrl || m.stripImage,
-          stripImage: m.stripImage || m.stripUrl,
-          message: m.message || m.guestMessage || '',
-          guestMessage: m.guestMessage || m.message || '',
+          stripUrl: strip,
+          stripImage: strip,
+          message: msg,
+          guestMessage: msg,
+          audioUrl: audio,
+          audioDuration: audioDur,
         });
       }
     });
   }
 
-  // 3. Remote memories always overwrite local (source of truth across devices)
+  // 3. Remote memories merge with local (preserve valid local images/audio if remote field is empty)
   if (Array.isArray(remoteList)) {
     remoteList.forEach((m) => {
       if (m && m.id) {
         const existing = map.get(m.id) || {};
+        const strip = m.stripImage || m.stripUrl || existing.stripImage || existing.stripUrl || null;
+        const msg = m.message || m.guestMessage || existing.message || existing.guestMessage || '';
+        const audio = m.audioUrl || m.audio_url || existing.audioUrl || existing.audio_url || null;
+        const audioDur = m.audioDuration || m.audio_duration || existing.audioDuration || existing.audio_duration || 0;
+
         map.set(m.id, {
           ...existing,
           ...m,
-          stripUrl: m.stripUrl || m.stripImage,
-          stripImage: m.stripImage || m.stripUrl,
-          message: m.message || m.guestMessage || '',
-          guestMessage: m.guestMessage || m.message || '',
+          stripUrl: strip,
+          stripImage: strip,
+          message: msg,
+          guestMessage: msg,
+          audioUrl: audio,
+          audioDuration: audioDur,
         });
       }
     });
@@ -95,37 +109,48 @@ export function mergeMemories(localList = [], remoteList = []) {
   return result;
 }
 
-// Map Supabase row -> app memory object
+// Map database / backend row -> app memory object
 function rowToMemory(row) {
-  const strip = row.strip_image || null;
-  const msg = row.message || '';
+  const strip = row.strip_image || row.strip_url || row.stripUrl || row.stripImage || row.image_url || row.photo_url || row.strip || null;
+  const msg = row.message || row.guest_message || row.guestMessage || '';
+  const audio = row.audio_url || row.audioUrl || row.audio || null;
+  const audioDur = Number(row.audio_duration || row.audioDuration || 0);
+
   return {
     id: String(row.id),
-    guestName: row.guest_name || 'Tamu Spesial',
+    guestName: row.guest_name || row.guestName || 'Tamu Spesial',
     message: msg,
     guestMessage: msg,
     stripImage: strip,
     stripUrl: strip,
-    galleryPhotos: Array.isArray(row.gallery_photos) ? row.gallery_photos : [],
-    likedIps: Array.isArray(row.liked_ips) ? row.liked_ips : [],
-    likesCount: Number(row.likes_count || 0),
-    createdAt: row.created_at || new Date().toISOString(),
-    templateId: row.template_id || 'classic',
-    frameColor: row.frame_color || null,
-    stickerOverlay: row.sticker_overlay || null,
-    filterName: row.filter_name || null,
+    audioUrl: audio,
+    audioDuration: audioDur,
+    galleryPhotos: Array.isArray(row.gallery_photos) ? row.gallery_photos : (Array.isArray(row.galleryPhotos) ? row.galleryPhotos : []),
+    likedIps: Array.isArray(row.liked_ips) ? row.liked_ips : (Array.isArray(row.likedIps) ? row.likedIps : []),
+    likesCount: Number(row.likes_count || row.likesCount || 0),
+    createdAt: row.created_at || row.createdAt || new Date().toISOString(),
+    templateId: row.template_id || row.templateId || 'classic',
+    frameColor: row.frame_color || row.frameColor || null,
+    stickerOverlay: row.sticker_overlay || row.stickerOverlay || null,
+    filterName: row.filter_name || row.filterName || null,
   };
 }
 
-// Map app memory object -> Supabase row
+// Map app memory object -> database row
 function memoryToRow(mem) {
   const strip = mem.stripImage || mem.stripUrl || null;
   const msg = mem.message || mem.guestMessage || '';
+  const audio = mem.audioUrl || mem.audio_url || null;
+  const audioDur = Number(mem.audioDuration || mem.audio_duration || 0);
+
   return {
     id: String(mem.id),
     guest_name: String(mem.guestName || mem.guest_name || 'Tamu Spesial').trim(),
     message: msg,
     strip_image: strip,
+    strip_url: strip,
+    audio_url: audio,
+    audio_duration: audioDur,
     gallery_photos: Array.isArray(mem.galleryPhotos) ? mem.galleryPhotos : (mem.gallery_photos || []),
     liked_ips: Array.isArray(mem.likedIps) ? mem.likedIps : (mem.liked_ips || []),
     likes_count: Number(mem.likesCount || mem.likes_count || 0),
@@ -176,6 +201,20 @@ export async function fetchOnlineMemories() {
     }
   }
 
+  // 2. Also fetch from local Backend API if available (concurrently npm run server)
+  try {
+    const res = await fetch('/api/memories', { cache: 'no-store' });
+    if (res.ok) {
+      const json = await res.json();
+      if (json?.success && Array.isArray(json.data) && json.data.length > 0) {
+        const backendMems = json.data.map(rowToMemory);
+        remoteMemories = [...backendMems, ...remoteMemories];
+      }
+    }
+  } catch (e) {
+    // API server offline or not running (e.g. client-only mode)
+  }
+
   const combined = mergeMemories(localMemories, remoteMemories);
 
   if (remoteMemories.length > 0) {
@@ -186,7 +225,7 @@ export async function fetchOnlineMemories() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Save a new memory to BOTH Supabase (cloud) and IndexedDB (local cache)
+// Save a new memory to BOTH Supabase (cloud), Backend API, and IndexedDB (local cache)
 // ─────────────────────────────────────────────────────────────────────────────
 export async function saveMemoryOnline(newMemory) {
   if (!newMemory || !newMemory.id) return { success: false, error: 'Invalid memory' };
@@ -198,7 +237,25 @@ export async function saveMemoryOnline(newMemory) {
     console.warn('[Sync] IndexedDB save warning:', e);
   }
 
-  // 2. Upload to Supabase (cross-device cloud storage)
+  // 2. Send to local Backend API if running (Express + Socket.io)
+  try {
+    await fetch('/api/memories', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        guestName: newMemory.guestName,
+        guestMessage: newMemory.message || newMemory.guestMessage,
+        templateId: newMemory.templateId,
+        stripDataUrl: newMemory.stripImage || newMemory.stripUrl,
+        audioDataUrl: newMemory.audioUrl,
+        audioDuration: newMemory.audioDuration,
+      })
+    });
+  } catch (e) {
+    // Local server offline or hosted client-only
+  }
+
+  // 3. Upload to Supabase (cross-device cloud storage)
   if (isSupabaseConfigured && supabase) {
     try {
       const row = memoryToRow(newMemory);
@@ -235,7 +292,7 @@ export async function saveMemoryOnline(newMemory) {
     }
   }
 
-  return { success: false, error: 'Supabase not configured' };
+  return { success: true };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

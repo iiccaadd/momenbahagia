@@ -20,14 +20,19 @@ export async function renderPhotostrip({
   canvas.height = height;
   const ctx = canvas.getContext('2d');
 
-  // Helper to load image
+  // Helper to load image safely
   const loadImage = (src) => {
     return new Promise((resolve) => {
       if (!src) return resolve(null);
       const img = new Image();
-      img.crossOrigin = 'anonymous';
+      if (typeof src === 'string' && (src.startsWith('http://') || src.startsWith('https://'))) {
+        img.crossOrigin = 'anonymous';
+      }
       img.onload = () => resolve(img);
-      img.onerror = () => resolve(null);
+      img.onerror = () => {
+        console.warn('Gagal memuat gambar untuk photostrip:', typeof src === 'string' ? src.substring(0, 60) : src);
+        resolve(null);
+      };
       img.src = src;
     });
   };

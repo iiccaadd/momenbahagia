@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Camera, Upload, RotateCw, Trash2, AlertCircle, RefreshCw } from 'lucide-react';
+import { Camera, Upload, RotateCw, Trash2, AlertCircle, RefreshCw, Image as ImageIcon } from 'lucide-react';
+import { useNotify } from '../context/NotificationContext';
 
 const FILTERS = [
   { id: 'normal', name: 'Original', style: 'none' },
@@ -15,6 +16,7 @@ export default function PhotoCaptureStep({
   slotCount = 3,
   weddingSettings,
 }) {
+  const notify = useNotify();
   const [activeSlot, setActiveSlot] = useState(0);
   const [isCameraActive, setIsCameraActive] = useState(false);
   const [isStartingCamera, setIsStartingCamera] = useState(false);
@@ -140,7 +142,48 @@ export default function PhotoCaptureStep({
     startCamera(nextMode);
   };
 
+  const processImageFile = (file) => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const img = new Image();
+        img.onload = () => {
+          // Max dimension 1000px for high quality with low footprint
+          const maxDim = 1000;
+          let w = img.width;
+          let h = img.height;
+          if (w > maxDim || h > maxDim) {
+            if (w > h) {
+              h = Math.round((h * maxDim) / w);
+              w = maxDim;
+            } else {
+              w = Math.round((w * maxDim) / h);
+              h = maxDim;
+            }
+          }
+          const canvas = document.createElement('canvas');
+          canvas.width = w;
+          canvas.height = h;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, w, h);
+          resolve(canvas.toDataURL('image/jpeg', 0.88));
+        };
+        img.onerror = () => reject(new Error('Gagal memproses gambar'));
+        img.src = event.target.result;
+      };
+      reader.onerror = () => reject(new Error('Gagal membaca file'));
+      reader.readAsDataURL(file);
+    });
+  };
+
   const takePhotoWithCountdown = () => {
+    const video = videoRef.current;
+    if (!isCameraActive || !video || video.readyState < 2 || !video.videoWidth) {
+      notify?.warning?.('Kamera belum aktif atau belum siap. Silakan izinkan akses kamera atau pilih foto dari Galeri.', 'Kamera Belum Siap');
+      fileInputRef.current?.click();
+      return;
+    }
+
     setCountdown(3);
     const interval = setInterval(() => {
       setCountdown((prev) => {
@@ -155,14 +198,18 @@ export default function PhotoCaptureStep({
   };
 
   const captureCurrentFrame = () => {
-    if (!videoRef.current) return;
+    const video = videoRef.current;
+    if (!video || !isCameraActive || video.readyState < 2 || !video.videoWidth) {
+      notify?.warning?.('Frame kamera belum siap. Silakan coba kembali atau pilih foto dari Galeri.', 'Kamera Belum Siap');
+      return;
+    }
+
     setFlash(true);
     setTimeout(() => setFlash(false), 200);
 
-    const video = videoRef.current;
     const canvas = document.createElement('canvas');
-    canvas.width = video.videoWidth || 800;
-    canvas.height = video.videoHeight || 600;
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
     const ctx = canvas.getContext('2d');
 
     if (facingMode === 'user') {
@@ -183,43 +230,34 @@ export default function PhotoCaptureStep({
     }
   };
 
-  const handleFileUpload = (e) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const img = new Image();
-        img.onload = () => {
-          // Max dimension 1000px for crisp quality with minimal memory footprint
-          const maxDim = 1000;
-          let w = img.width;
-          let h = img.height;
-          if (w > maxDim || h > maxDim) {
-            if (w > h) {
-              h = Math.round((h * maxDim) / w);
-              w = maxDim;
-            } else {
-              w = Math.round((w * maxDim) / h);
-              h = maxDim;
-            }
-          }
-          const canvas = document.createElement('canvas');
-          canvas.width = w;
-          canvas.height = h;
-          const ctx = canvas.getContext('2d');
-          ctx.drawImage(img, 0, 0, w, h);
-          const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.85);
+  const handleFileUpload = async (e) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
 
-          const newPhotos = [...photos];
-          newPhotos[activeSlot] = compressedDataUrl;
-          setPhotos(newPhotos);
-          if (activeSlot < slotCount - 1) {
-            setActiveSlot(activeSlot + 1);
-          }
-        };
-        img.src = event.target.result;
-      };
-      reader.readAsDataURL(file);
+    try {
+      const newPhotos = [...photos];
+      let startSlot = activeSlot;
+
+      // If user uploaded multiple files (e.g. 3 files), fill consecutive slots
+      for (let i = 0; i < files.length && (startSlot + i) < slotCount; i++) {
+        const dataUrl = await processImageFile(files[i]);
+        newPhotos[startSlot + i] = dataUrl;
+      }
+
+      setPhotos(newPhotos);
+
+      // Advance to next empty slot or last slot
+      const nextEmpty = newPhotos.findIndex((p) => !p);
+      if (nextEmpty !== -1) {
+        setActiveSlot(nextEmpty);
+      } else {
+        setActiveSlot(Math.min(slotCount - 1, startSlot + files.length));
+      }
+    } catch (err) {
+      console.error('Upload photo error:', err);
+      notify?.warning?.('Gagal memproses file foto. Pastikan format file adalah gambar (JPG/PNG/WebP).', 'Format Foto');
+    } finally {
+      if (e.target) e.target.value = '';
     }
   };
 
@@ -339,6 +377,7 @@ export default function PhotoCaptureStep({
             ref={fileInputRef}
             type="file"
             accept="image/*"
+            multiple
             onChange={handleFileUpload}
             className="hidden"
           />

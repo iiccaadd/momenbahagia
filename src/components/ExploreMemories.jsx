@@ -36,6 +36,13 @@ export default function ExploreMemories({
     }
   };
 
+  const formatAudioTime = (seconds) => {
+    const sec = Math.max(0, parseInt(seconds || 0, 10));
+    const mins = Math.floor(sec / 60);
+    const remaining = sec % 60;
+    return `${mins.toString().padStart(2, '0')}:${remaining.toString().padStart(2, '0')}`;
+  };
+
   const formatDate = (isoString) => {
     try {
       const d = new Date(isoString || Date.now());
@@ -97,12 +104,34 @@ export default function ExploreMemories({
               className="group relative flex flex-col bg-[#263727] text-[#F6F4EE] rounded-2xl sm:rounded-[22px] overflow-hidden border border-[#E9DDC5]/40 shadow-md hover:shadow-xl transition-all duration-300 hover:scale-[1.01] cursor-pointer select-none"
             >
               {/* Photostrip Image Preview Area */}
-              <div className="w-full bg-[#1d2b1e] p-1 sm:p-1.5 flex items-center justify-center relative overflow-hidden">
-                <img
-                  src={m.stripImage || m.stripUrl}
-                  alt={m.guestName}
-                  className="w-full h-auto max-h-[340px] sm:max-h-[380px] object-contain rounded-xl transition-transform duration-300 group-hover:scale-[1.02]"
-                />
+              <div className="w-full min-h-[220px] sm:min-h-[260px] bg-[#1d2b1e] p-1 sm:p-1.5 flex items-center justify-center relative overflow-hidden rounded-t-2xl sm:rounded-t-[22px]">
+                {m.stripImage || m.stripUrl ? (
+                  <img
+                    src={m.stripImage || m.stripUrl}
+                    alt={m.guestName}
+                    onError={(e) => {
+                      e.target.style.display = 'none';
+                      const fallback = e.target.parentElement.querySelector('.image-fallback-box');
+                      if (fallback) fallback.classList.remove('hidden');
+                    }}
+                    className="w-full h-auto max-h-[340px] sm:max-h-[380px] object-contain rounded-xl transition-transform duration-300 group-hover:scale-[1.02]"
+                  />
+                ) : null}
+
+                {/* Aesthetic Fallback Tile if image is not present or failed to load */}
+                <div
+                  className={`image-fallback-box w-full min-h-[220px] sm:min-h-[260px] rounded-xl flex flex-col items-center justify-center p-4 text-center bg-gradient-to-b from-[#223323] to-[#172318] border border-dashed border-[#E9DDC5]/30 ${
+                    m.stripImage || m.stripUrl ? 'hidden' : 'flex'
+                  }`}
+                >
+                  <Sparkles className="w-8 h-8 text-[#E9DDC5] mb-2 opacity-70 animate-pulse" />
+                  <span className="font-cinzel text-xs font-bold text-[#F6F4EE] uppercase tracking-wider line-clamp-1">
+                    {m.guestName}
+                  </span>
+                  <span className="text-[10px] text-[#E9DDC5]/70 mt-1 font-serif italic line-clamp-2 px-2">
+                    {m.message || m.guestMessage || 'Momen Bahagia Resepsi'}
+                  </span>
+                </div>
 
                 {/* Floating Love Button */}
                 <button
@@ -111,7 +140,7 @@ export default function ExploreMemories({
                     e.stopPropagation();
                     if (onLike) onLike(m.id);
                   }}
-                  className={`absolute top-2.5 right-2.5 px-2 py-1 rounded-full text-[10px] font-bold flex items-center gap-1 backdrop-blur-md shadow-md transition-all active:scale-90 ${
+                  className={`absolute top-2.5 right-2.5 px-2 py-1 rounded-full text-[10px] font-bold flex items-center gap-1 backdrop-blur-md shadow-md transition-all active:scale-90 z-10 ${
                     isLiked
                       ? 'bg-rose-600/90 text-white border border-rose-400'
                       : 'bg-black/50 text-white/90 hover:bg-black/70 border border-white/20'
@@ -131,13 +160,13 @@ export default function ExploreMemories({
                   <button
                     type="button"
                     onClick={(e) => handlePlayVoice(m.id, m.audioUrl, e)}
-                    className="absolute bottom-2.5 left-2.5 px-2 py-1 rounded-full text-[10px] font-cinzel font-semibold bg-black/60 text-[#E9DDC5] backdrop-blur-md border border-[#E9DDC5]/40 flex items-center gap-1 hover:bg-black/80 transition-all shadow"
+                    className="absolute bottom-2.5 left-2.5 px-2.5 py-1 rounded-full text-[10px] font-cinzel font-semibold bg-black/70 text-[#E9DDC5] backdrop-blur-md border border-[#E9DDC5]/40 flex items-center gap-1.5 hover:bg-black/90 transition-all shadow-md z-10"
                     title="Putar Pesan Suara"
                   >
                     {activeAudioId === m.id ? (
-                      <Pause className="w-3 h-3 fill-[#E9DDC5]" />
+                      <Pause className="w-3 h-3 fill-[#E9DDC5] text-[#E9DDC5]" />
                     ) : (
-                      <Play className="w-3 h-3 fill-[#E9DDC5]" />
+                      <Play className="w-3 h-3 fill-[#E9DDC5] text-[#E9DDC5]" />
                     )}
                     <span>{m.audioDuration ? `${m.audioDuration}s` : 'Voice'}</span>
                   </button>
@@ -193,11 +222,28 @@ export default function ExploreMemories({
 
             {/* Framed Photostrip Image */}
             <div className="rounded-2xl overflow-hidden bg-[#F6F4EE] p-3 flex justify-center shadow-inner border border-[#E9DDC5]">
-              <img
-                src={selectedMemory.stripImage || selectedMemory.stripUrl}
-                alt={selectedMemory.guestName}
-                className="max-h-[48vh] sm:max-h-[52vh] w-auto rounded-xl object-contain shadow"
-              />
+              {selectedMemory.stripImage || selectedMemory.stripUrl ? (
+                <img
+                  src={selectedMemory.stripImage || selectedMemory.stripUrl}
+                  alt={selectedMemory.guestName}
+                  onError={(e) => {
+                    e.target.style.display = 'none';
+                    const fallback = e.target.parentElement.querySelector('.modal-fallback-box');
+                    if (fallback) fallback.classList.remove('hidden');
+                  }}
+                  className="max-h-[48vh] sm:max-h-[52vh] w-auto rounded-xl object-contain shadow"
+                />
+              ) : null}
+
+              <div
+                className={`modal-fallback-box w-full min-h-[220px] rounded-xl flex flex-col items-center justify-center p-6 text-center bg-[#1d2b1e] text-[#F6F4EE] ${
+                  selectedMemory.stripImage || selectedMemory.stripUrl ? 'hidden' : 'flex'
+                }`}
+              >
+                <Sparkles className="w-10 h-10 text-[#E9DDC5] mb-2 opacity-80" />
+                <span className="font-cinzel text-base font-bold uppercase tracking-wider">{selectedMemory.guestName}</span>
+                <span className="text-xs text-[#E9DDC5]/70 mt-1 font-serif italic">Kenangan Indah Resepsi</span>
+              </div>
             </div>
 
             {/* Voice Message Capsule (if available) */}
@@ -216,9 +262,7 @@ export default function ExploreMemories({
                     )}
                   </button>
                   <span className="font-cinzel font-bold text-xs sm:text-sm text-[#263727]">
-                    {selectedMemory.audioDuration
-                      ? `00:${String(selectedMemory.audioDuration).padStart(2, '0')}`
-                      : '00:05'}
+                    {formatAudioTime(selectedMemory.audioDuration || 5)}
                   </span>
                 </div>
 

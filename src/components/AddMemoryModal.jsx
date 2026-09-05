@@ -174,9 +174,13 @@ export default function AddMemoryModal({
         id: `mem-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
         guestName: guestName.trim() || 'Tamu Spesial',
         message: guestMessage.trim() || '',
-        stripImage: compressedStrip,          // ← field name matches cloudSync.js
-        galleryPhotos: [],                    // ← not stored in cloud (too large)
+        guestMessage: guestMessage.trim() || '',
+        stripImage: compressedStrip,          // ← field name matches cloudSync.js & ExploreMemories
+        stripUrl: compressedStrip,            // ← also provide stripUrl for backward compatibility
+        galleryPhotos: photos.filter(Boolean),
         templateId: selectedTemplate?.id || 'classic',
+        audioUrl: audioData?.dataUrl || audioData?.url || null,
+        audioDuration: audioData?.duration || 0,
         createdAt: new Date().toISOString(),
         likesCount: 0,
         likedIps: [],
