@@ -99,7 +99,7 @@ export default function ExploreMemories({
               {/* Photostrip Image Preview Area */}
               <div className="w-full bg-[#1d2b1e] p-1 sm:p-1.5 flex items-center justify-center relative overflow-hidden">
                 <img
-                  src={m.stripUrl}
+                  src={m.stripImage || m.stripUrl}
                   alt={m.guestName}
                   className="w-full h-auto max-h-[340px] sm:max-h-[380px] object-contain rounded-xl transition-transform duration-300 group-hover:scale-[1.02]"
                 />
@@ -172,7 +172,7 @@ export default function ExploreMemories({
             {/* Top Bar: Unduh Softfile & Tutup */}
             <div className="flex items-center justify-between pb-1 border-b border-white/10">
               <a
-                href={selectedMemory.stripUrl}
+                href={selectedMemory.stripImage || selectedMemory.stripUrl}
                 download={`wedding-photostrip-${(selectedMemory.guestName || 'memory').replace(/\s+/g, '-')}.jpg`}
                 className="inline-flex items-center gap-1.5 text-xs font-cinzel font-bold text-[#F6F4EE] hover:text-[#E9DDC5] border-b border-[#E9DDC5] pb-0.5 tracking-wider transition-colors"
               >
@@ -194,7 +194,7 @@ export default function ExploreMemories({
             {/* Framed Photostrip Image */}
             <div className="rounded-2xl overflow-hidden bg-[#F6F4EE] p-3 flex justify-center shadow-inner border border-[#E9DDC5]">
               <img
-                src={selectedMemory.stripUrl}
+                src={selectedMemory.stripImage || selectedMemory.stripUrl}
                 alt={selectedMemory.guestName}
                 className="max-h-[48vh] sm:max-h-[52vh] w-auto rounded-xl object-contain shadow"
               />
@@ -247,9 +247,9 @@ export default function ExploreMemories({
               <h3 className="font-cinzel text-xl sm:text-2xl font-bold tracking-[0.08em] text-[#F6F4EE] uppercase">
                 {selectedMemory.guestName}
               </h3>
-              {selectedMemory.guestMessage && (
+              {(selectedMemory.message || selectedMemory.guestMessage) && (
                 <p className="text-xs sm:text-sm text-[#F6F4EE]/90 italic font-serif bg-white/10 p-3 rounded-2xl border border-white/10 leading-relaxed">
-                  "{selectedMemory.guestMessage}"
+                  &ldquo;{selectedMemory.message || selectedMemory.guestMessage}&rdquo;
                 </p>
               )}
             </div>

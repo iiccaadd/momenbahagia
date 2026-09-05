@@ -167,22 +167,23 @@ export default function AddMemoryModal({
     setIsSubmitting(true);
 
     try {
+      // Compress the strip image to max ~200KB before saving to cloud
+      const compressedStrip = await compressBase64Image(generatedStripUrl, 400, 0.72);
+
       const memoryData = {
         id: `mem-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
         guestName: guestName.trim() || 'Tamu Spesial',
-        guestMessage: guestMessage.trim() || '',
-        stripUrl: generatedStripUrl,
-        rawPhotos: photos.filter(Boolean),
+        message: guestMessage.trim() || '',
+        stripImage: compressedStrip,          // ← field name matches cloudSync.js
+        galleryPhotos: [],                    // ← not stored in cloud (too large)
         templateId: selectedTemplate?.id || 'classic',
-        audioUrl: audioData?.dataUrl || null,
-        audioDuration: audioData?.duration || 0,
         createdAt: new Date().toISOString(),
-        likesCount: 1,
+        likesCount: 0,
         likedIps: [],
         isPinned: false
       };
 
-      // 1. Immediately save to IndexedDB & broadcast online
+      // 1. Save to IndexedDB + push to Supabase cloud
       await saveMemoryOnline(memoryData);
 
       // 2. Notify parent state
@@ -207,6 +208,27 @@ export default function AddMemoryModal({
       setIsSubmitting(false);
     }
   };
+
+  // Compress base64 image to target width and quality
+  async function compressBase64Image(dataUrl, maxWidth, quality) {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        const scale = Math.min(1, maxWidth / img.width);
+        const w = Math.round(img.width * scale);
+        const h = Math.round(img.height * scale);
+        const canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, w, h);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.onerror = () => resolve(dataUrl); // fallback: use original
+      img.src = dataUrl;
+    });
+  }
+
 
   return (
     <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex justify-center items-end sm:items-center p-0 sm:p-4 animate-wmfadein select-none">
