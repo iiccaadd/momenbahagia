@@ -92,3 +92,7 @@ EXCEPTION
   WHEN OTHERS THEN
     NULL; -- Abaikan jika publikasi sudah ada atau izin superuser berbeda
 END $$;
+
+-- 6. Aktifkan REPLICA IDENTITY FULL agar seluruh kolom (termasuk strip_image) selalu disertakan di Supabase Realtime
+ALTER TABLE public.memories REPLICA IDENTITY FULL;
+

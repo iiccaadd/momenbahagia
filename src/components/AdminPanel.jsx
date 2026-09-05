@@ -106,7 +106,10 @@ BEGIN
     ALTER PUBLICATION supabase_realtime ADD TABLE public.memories;
   END IF;
 EXCEPTION WHEN OTHERS THEN NULL;
-END $$;`;
+END $$;
+
+-- 5. Aktifkan REPLICA IDENTITY FULL agar kolom foto selalu disertakan di Supabase Realtime
+ALTER TABLE public.memories REPLICA IDENTITY FULL;`;
 
 
 export default function AdminPanel({

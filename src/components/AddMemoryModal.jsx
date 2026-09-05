@@ -167,17 +167,20 @@ export default function AddMemoryModal({
     setIsSubmitting(true);
 
     try {
-      // Compress the strip image to max ~200KB before saving to cloud
-      const compressedStrip = await compressBase64Image(generatedStripUrl, 400, 0.72);
+      // Compress the strip image to max ~450px width (~70KB - 100KB JPEG) so Supabase Realtime WebSocket never drops it
+      const compressedStrip = await compressBase64Image(generatedStripUrl, 450, 0.78);
+      const finalStripImage = (compressedStrip && compressedStrip.startsWith('data:image/') && compressedStrip.length > 500)
+        ? compressedStrip
+        : generatedStripUrl;
 
       const memoryData = {
         id: `mem-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
         guestName: guestName.trim() || 'Tamu Spesial',
         message: guestMessage.trim() || '',
         guestMessage: guestMessage.trim() || '',
-        stripImage: compressedStrip,          // ← field name matches cloudSync.js & ExploreMemories
-        stripUrl: compressedStrip,            // ← also provide stripUrl for backward compatibility
-        galleryPhotos: photos.filter(Boolean),
+        stripImage: finalStripImage,          // ← valid, lightweight photostrip JPEG
+        stripUrl: finalStripImage,            // ← backward compatibility
+        galleryPhotos: [],                    // ← keep payload under 120KB so Realtime WebSocket and cloud sync never drop columns
         templateId: selectedTemplate?.id || 'classic',
         audioUrl: audioData?.dataUrl || audioData?.url || null,
         audioDuration: audioData?.duration || 0,
@@ -210,22 +213,60 @@ export default function AddMemoryModal({
     }
   };
 
-  // Compress base64 image to target width and quality
-  async function compressBase64Image(dataUrl, maxWidth, quality) {
+  // Compress base64 image safely to target width and quality without producing empty "data:,"
+  async function compressBase64Image(dataUrl, maxWidth = 450, quality = 0.78) {
+    if (!dataUrl || typeof dataUrl !== 'string' || !dataUrl.startsWith('data:image/')) {
+      return dataUrl;
+    }
+
     return new Promise((resolve) => {
+      // Safety timeout in case image loading stalls on slow devices
+      const timeout = setTimeout(() => resolve(dataUrl), 2500);
+
       const img = new Image();
       img.onload = () => {
-        const scale = Math.min(1, maxWidth / img.width);
-        const w = Math.round(img.width * scale);
-        const h = Math.round(img.height * scale);
-        const canvas = document.createElement('canvas');
-        canvas.width = w;
-        canvas.height = h;
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(img, 0, 0, w, h);
-        resolve(canvas.toDataURL('image/jpeg', quality));
+        clearTimeout(timeout);
+        try {
+          const naturalW = img.naturalWidth || img.width;
+          const naturalH = img.naturalHeight || img.height;
+
+          if (!naturalW || !naturalH || naturalW <= 0 || naturalH <= 0) {
+            return resolve(dataUrl);
+          }
+
+          const scale = Math.min(1, maxWidth / naturalW);
+          const w = Math.max(1, Math.round(naturalW * scale));
+          const h = Math.max(1, Math.round(naturalH * scale));
+
+          const canvas = document.createElement('canvas');
+          canvas.width = w;
+          canvas.height = h;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) return resolve(dataUrl);
+
+          // Fill white background to avoid transparent sections turning black
+          ctx.fillStyle = '#FFFFFF';
+          ctx.fillRect(0, 0, w, h);
+          ctx.drawImage(img, 0, 0, w, h);
+
+          const compressed = canvas.toDataURL('image/jpeg', quality);
+          if (compressed && compressed.startsWith('data:image/jpeg') && compressed.length > 500) {
+            resolve(compressed);
+          } else {
+            resolve(dataUrl);
+          }
+        } catch (e) {
+          console.warn('[Compress] Exception during image compression, using original:', e);
+          resolve(dataUrl);
+        }
       };
-      img.onerror = () => resolve(dataUrl); // fallback: use original
+
+      img.onerror = () => {
+        clearTimeout(timeout);
+        console.warn('[Compress] Failed to load image for compression, using original');
+        resolve(dataUrl);
+      };
+
       img.src = dataUrl;
     });
   }

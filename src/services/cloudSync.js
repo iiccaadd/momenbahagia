@@ -90,7 +90,9 @@ export function mergeMemories(localList = [], remoteList = []) {
     remoteList.forEach((m) => {
       if (m && m.id) {
         const existing = map.get(m.id) || {};
-        const strip = m.stripImage || m.stripUrl || existing.stripImage || existing.stripUrl || null;
+        const isExistingStripValid = existing.stripImage && existing.stripImage.length > 50 && existing.stripImage !== 'data:,';
+        const isRemoteStripValid = m.stripImage && m.stripImage.length > 50 && m.stripImage !== 'data:,';
+        const strip = isRemoteStripValid ? m.stripImage : (isExistingStripValid ? existing.stripImage : (m.stripUrl || existing.stripUrl || null));
         const msg = m.message || m.guestMessage || existing.message || existing.guestMessage || '';
         const audio = m.audioUrl || m.audio_url || existing.audioUrl || existing.audio_url || null;
         const audioDur = m.audioDuration || m.audio_duration || existing.audioDuration || existing.audio_duration || 0;
@@ -116,7 +118,11 @@ export function mergeMemories(localList = [], remoteList = []) {
 
 // Map database / backend row -> app memory object
 function rowToMemory(row) {
-  const strip = row.strip_image || row.strip_url || row.stripUrl || row.stripImage || row.image_url || row.photo_url || row.strip || null;
+  let strip = row.strip_image || row.strip_url || row.stripUrl || row.stripImage || row.image_url || row.photo_url || row.strip || null;
+  // If strip is invalid (e.g. "data:," or too short or whitespace), treat as null
+  if (strip && (typeof strip !== 'string' || strip.length < 50 || strip === 'data:,' || !strip.trim())) {
+    strip = null;
+  }
   const msg = row.message || row.guest_message || row.guestMessage || '';
   const audio = row.audio_url || row.audioUrl || row.audio || null;
   const audioDur = Number(row.audio_duration || row.audioDuration || 0);
@@ -143,7 +149,10 @@ function rowToMemory(row) {
 
 // Map app memory object -> database row
 function memoryToRow(mem) {
-  const strip = mem.stripImage || mem.stripUrl || null;
+  let strip = mem.stripImage || mem.stripUrl || null;
+  if (strip && (typeof strip !== 'string' || strip.length < 50 || strip === 'data:,' || !strip.trim())) {
+    strip = null;
+  }
   const msg = mem.message || mem.guestMessage || '';
   const audio = mem.audioUrl || mem.audio_url || null;
   const audioDur = Number(mem.audioDuration || mem.audio_duration || 0);
@@ -156,7 +165,7 @@ function memoryToRow(mem) {
     strip_url: strip,
     audio_url: audio,
     audio_duration: audioDur,
-    gallery_photos: Array.isArray(mem.galleryPhotos) ? mem.galleryPhotos : (mem.gallery_photos || []),
+    gallery_photos: [], // keep cloud payload lightweight (<120KB) so Realtime WebSocket and network never drop image
     liked_ips: Array.isArray(mem.likedIps) ? mem.likedIps : (mem.liked_ips || []),
     likes_count: Number(mem.likesCount || mem.likes_count || 0),
     created_at: mem.createdAt || mem.created_at || new Date().toISOString(),
@@ -406,13 +415,56 @@ export function subscribeToMemories(callbacks = {}) {
           console.log('[Realtime event]', payload.eventType, payload.new?.id || payload.old?.id);
 
           if (payload.eventType === 'INSERT' && payload.new) {
-            const mem = rowToMemory(payload.new);
+            let mem = rowToMemory(payload.new);
             saveMemoryDB(mem).catch(() => {});
             onNewMemory?.(mem);
+
+            // If strip_image was omitted by Supabase Realtime (TOAST column limit), immediately fetch full row via REST!
+            if (!mem.stripImage && payload.new.id) {
+              const currentClient = getSupabaseClient();
+              if (currentClient) {
+                currentClient
+                  .from('memories')
+                  .select('*')
+                  .eq('id', payload.new.id)
+                  .single()
+                  .then(({ data: fullRow, error }) => {
+                    if (!error && fullRow) {
+                      const completeMem = rowToMemory(fullRow);
+                      if (completeMem.stripImage) {
+                        saveMemoryDB(completeMem).catch(() => {});
+                        onUpdateMemory?.(completeMem);
+                      }
+                    }
+                  })
+                  .catch(() => {});
+              }
+            }
           } else if (payload.eventType === 'UPDATE' && payload.new) {
-            const mem = rowToMemory(payload.new);
+            let mem = rowToMemory(payload.new);
             saveMemoryDB(mem).catch(() => {});
             onUpdateMemory?.(mem);
+
+            if (!mem.stripImage && payload.new.id) {
+              const currentClient = getSupabaseClient();
+              if (currentClient) {
+                currentClient
+                  .from('memories')
+                  .select('*')
+                  .eq('id', payload.new.id)
+                  .single()
+                  .then(({ data: fullRow, error }) => {
+                    if (!error && fullRow) {
+                      const completeMem = rowToMemory(fullRow);
+                      if (completeMem.stripImage) {
+                        saveMemoryDB(completeMem).catch(() => {});
+                        onUpdateMemory?.(completeMem);
+                      }
+                    }
+                  })
+                  .catch(() => {});
+              }
+            }
           } else if (payload.eventType === 'DELETE' && payload.old) {
             const id = String(payload.old.id);
             deleteMemoryDB(id).catch(() => {});

@@ -105,33 +105,43 @@ export default function ExploreMemories({
             >
               {/* Photostrip Image Preview Area */}
               <div className="w-full min-h-[220px] sm:min-h-[260px] bg-[#1d2b1e] p-1 sm:p-1.5 flex items-center justify-center relative overflow-hidden rounded-t-2xl sm:rounded-t-[22px]">
-                {m.stripImage || m.stripUrl ? (
-                  <img
-                    src={m.stripImage || m.stripUrl}
-                    alt={m.guestName}
-                    onError={(e) => {
-                      e.target.style.display = 'none';
-                      const fallback = e.target.parentElement.querySelector('.image-fallback-box');
-                      if (fallback) fallback.classList.remove('hidden');
-                    }}
-                    className="w-full h-auto max-h-[340px] sm:max-h-[380px] object-contain rounded-xl transition-transform duration-300 group-hover:scale-[1.02]"
-                  />
-                ) : null}
+                {(() => {
+                  const stripSrc = m.stripImage || m.stripUrl;
+                  const isValid = stripSrc && typeof stripSrc === 'string' && stripSrc.length > 50 && stripSrc !== 'data:,';
 
-                {/* Aesthetic Fallback Tile if image is not present or failed to load */}
-                <div
-                  className={`image-fallback-box w-full min-h-[220px] sm:min-h-[260px] rounded-xl flex flex-col items-center justify-center p-4 text-center bg-gradient-to-b from-[#223323] to-[#172318] border border-dashed border-[#E9DDC5]/30 ${
-                    m.stripImage || m.stripUrl ? 'hidden' : 'flex'
-                  }`}
-                >
-                  <Sparkles className="w-8 h-8 text-[#E9DDC5] mb-2 opacity-70 animate-pulse" />
-                  <span className="font-cinzel text-xs font-bold text-[#F6F4EE] uppercase tracking-wider line-clamp-1">
-                    {m.guestName}
-                  </span>
-                  <span className="text-[10px] text-[#E9DDC5]/70 mt-1 font-serif italic line-clamp-2 px-2">
-                    {m.message || m.guestMessage || 'Momen Bahagia Resepsi'}
-                  </span>
-                </div>
+                  return (
+                    <>
+                      {isValid ? (
+                        <img
+                          src={stripSrc}
+                          alt={m.guestName}
+                          onError={(e) => {
+                            console.warn('[Explore] Gagal memuat foto kenangan:', m.guestName, stripSrc?.substring(0, 40));
+                            e.target.style.display = 'none';
+                            const fallback = e.target.parentElement?.querySelector('.image-fallback-box');
+                            if (fallback) fallback.classList.remove('hidden');
+                          }}
+                          className="w-full h-auto max-h-[340px] sm:max-h-[380px] object-contain rounded-xl transition-transform duration-300 group-hover:scale-[1.02]"
+                        />
+                      ) : null}
+
+                      {/* Aesthetic Fallback Tile if image is not present or failed to load */}
+                      <div
+                        className={`image-fallback-box w-full min-h-[220px] sm:min-h-[260px] rounded-xl flex flex-col items-center justify-center p-4 text-center bg-gradient-to-b from-[#223323] to-[#172318] border border-dashed border-[#E9DDC5]/30 ${
+                          isValid ? 'hidden' : 'flex'
+                        }`}
+                      >
+                        <Sparkles className="w-8 h-8 text-[#E9DDC5] mb-2 opacity-70 animate-pulse" />
+                        <span className="font-cinzel text-xs font-bold text-[#F6F4EE] uppercase tracking-wider line-clamp-1">
+                          {m.guestName}
+                        </span>
+                        <span className="text-[10px] text-[#E9DDC5]/70 mt-1 font-serif italic line-clamp-2 px-2">
+                          {m.message || m.guestMessage || 'Momen Bahagia Resepsi'}
+                        </span>
+                      </div>
+                    </>
+                  );
+                })()}
 
                 {/* Floating Love Button */}
                 <button
@@ -222,28 +232,37 @@ export default function ExploreMemories({
 
             {/* Framed Photostrip Image */}
             <div className="rounded-2xl overflow-hidden bg-[#F6F4EE] p-3 flex justify-center shadow-inner border border-[#E9DDC5]">
-              {selectedMemory.stripImage || selectedMemory.stripUrl ? (
-                <img
-                  src={selectedMemory.stripImage || selectedMemory.stripUrl}
-                  alt={selectedMemory.guestName}
-                  onError={(e) => {
-                    e.target.style.display = 'none';
-                    const fallback = e.target.parentElement.querySelector('.modal-fallback-box');
-                    if (fallback) fallback.classList.remove('hidden');
-                  }}
-                  className="max-h-[48vh] sm:max-h-[52vh] w-auto rounded-xl object-contain shadow"
-                />
-              ) : null}
+              {(() => {
+                const modalStripSrc = selectedMemory.stripImage || selectedMemory.stripUrl;
+                const isModalValid = modalStripSrc && typeof modalStripSrc === 'string' && modalStripSrc.length > 50 && modalStripSrc !== 'data:,';
 
-              <div
-                className={`modal-fallback-box w-full min-h-[220px] rounded-xl flex flex-col items-center justify-center p-6 text-center bg-[#1d2b1e] text-[#F6F4EE] ${
-                  selectedMemory.stripImage || selectedMemory.stripUrl ? 'hidden' : 'flex'
-                }`}
-              >
-                <Sparkles className="w-10 h-10 text-[#E9DDC5] mb-2 opacity-80" />
-                <span className="font-cinzel text-base font-bold uppercase tracking-wider">{selectedMemory.guestName}</span>
-                <span className="text-xs text-[#E9DDC5]/70 mt-1 font-serif italic">Kenangan Indah Resepsi</span>
-              </div>
+                return (
+                  <>
+                    {isModalValid ? (
+                      <img
+                        src={modalStripSrc}
+                        alt={selectedMemory.guestName}
+                        onError={(e) => {
+                          e.target.style.display = 'none';
+                          const fallback = e.target.parentElement?.querySelector('.modal-fallback-box');
+                          if (fallback) fallback.classList.remove('hidden');
+                        }}
+                        className="max-h-[48vh] sm:max-h-[52vh] w-auto rounded-xl object-contain shadow"
+                      />
+                    ) : null}
+
+                    <div
+                      className={`modal-fallback-box w-full min-h-[220px] rounded-xl flex flex-col items-center justify-center p-6 text-center bg-[#1d2b1e] text-[#F6F4EE] ${
+                        isModalValid ? 'hidden' : 'flex'
+                      }`}
+                    >
+                      <Sparkles className="w-10 h-10 text-[#E9DDC5] mb-2 opacity-80" />
+                      <span className="font-cinzel text-base font-bold uppercase tracking-wider">{selectedMemory.guestName}</span>
+                      <span className="text-xs text-[#E9DDC5]/70 mt-1 font-serif italic">Kenangan Indah Resepsi</span>
+                    </div>
+                  </>
+                );
+              })()}
             </div>
 
             {/* Voice Message Capsule (if available) */}
