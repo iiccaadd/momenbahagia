@@ -201,7 +201,7 @@ export async function fetchOnlineMemories() {
         client
           .from('memories')
           .delete()
-          .or("id.eq.mem-1788501512659-ltcny3,id.eq.mem-1788501388351-gik73m,guest_name.ilike.%Adisty & Irsyad's Guest%,guest_name.ilike.icad")
+          .or("id.eq.mem-1788501512659-ltcny3,id.eq.mem-1788501388351-gik73m")
           .then(() => {})
           .catch(() => {});
       } else if (error) {

@@ -335,15 +335,18 @@ export default function GuestLanding({
 
       {/* Add Memory 4-Step Workflow Modal */}
       <AddMemoryModal
-        isOpen={isAddModalOpen && !isLimitReached && !isCoolingDown}
-        onClose={() => setIsAddModalOpen(false)}
-        weddingSettings={weddingSettings || { couple }}
-        templates={templates}
-        onMemorySubmitted={(newMem) => {
-          recordUpload();
-          if (onAddMemory) onAddMemory(newMem);
+        isOpen={isAddModalOpen}
+        onClose={() => {
           setIsAddModalOpen(false);
           setIsExploreOpen(true);
+        }}
+        weddingSettings={weddingSettings || { couple }}
+        templates={templates}
+        onMemorySubmitted={async (newMem) => {
+          recordUpload();
+          if (onAddMemory) {
+            await onAddMemory(newMem);
+          }
         }}
       />
     </div>

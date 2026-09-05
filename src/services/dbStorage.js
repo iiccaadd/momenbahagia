@@ -42,16 +42,14 @@ function openDB() {
 export function isDummyMemory(memOrRow) {
   if (!memOrRow) return true;
   const id = String(memOrRow.id || '');
-  const name = String(memOrRow.guest_name || memOrRow.guestName || '').toLowerCase().trim();
-  const msg = String(memOrRow.message || memOrRow.guest_message || memOrRow.guestMessage || '').trim();
   const strip = String(memOrRow.strip_image || memOrRow.strip_url || memOrRow.stripUrl || memOrRow.stripImage || '');
 
+  // Exact IDs of the 2 legacy sample memories
   if (id === 'mem-1788501512659-ltcny3' || id === 'mem-1788501388351-gik73m') return true;
-  if (name.includes("adisty & irsyad's guest") || name === 'adisty & irsyad') return true;
-  if (name === 'icad' && (msg.includes('Happy Wedding!') || msg === '')) return true;
-  if (strip.includes('strip-1788501512656') || strip.includes('strip-1788501388341')) return true;
-  if (strip.includes('strip-178799')) return true;
-  if (msg.includes('Selamat menempuh hidup baru untuk Adisty & Irsyad! Bahagia dan langgeng')) return true;
+
+  // Legacy sample strip file paths that were permanently deleted
+  if (strip.includes('strip-1788501512656') || strip.includes('strip-1788501388341') || strip.includes('strip-178799')) return true;
+
   return false;
 }
 

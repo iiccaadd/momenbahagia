@@ -74,18 +74,20 @@ export default function AddMemoryModal({
   // Reset modal state, check limits, and lock background scroll when opened
   useEffect(() => {
     if (isOpen) {
-      const count = getStoredUploadCount();
-      if (count >= MAX_GUEST_UPLOADS) {
-        notify.info('Batas upload kenangan telah mencapai maksimal 3 kali. Terima kasih!', 'Batas Tercapai');
-        onClose();
-        return;
-      }
-      const cooldown = calculateCooldownRemaining(getStoredLastUploadTime());
-      if (cooldown > 0) {
-        const mins = Math.ceil(cooldown / 60);
-        notify.warning(`Harap menunggu waktu jeda ${mins} menit sebelum upload berikutnya.`, 'Waktu Tunggu');
-        onClose();
-        return;
+      if (currentStep === 1 && !isSubmitting && !isSuccess) {
+        const count = getStoredUploadCount();
+        if (count >= MAX_GUEST_UPLOADS) {
+          notify.info('Batas upload kenangan telah mencapai maksimal 3 kali. Terima kasih!', 'Batas Tercapai');
+          onClose();
+          return;
+        }
+        const cooldown = calculateCooldownRemaining(getStoredLastUploadTime());
+        if (cooldown > 0) {
+          const mins = Math.ceil(cooldown / 60);
+          notify.warning(`Harap menunggu waktu jeda ${mins} menit sebelum upload berikutnya.`, 'Waktu Tunggu');
+          onClose();
+          return;
+        }
       }
 
       setCurrentStep(1);
@@ -231,7 +233,14 @@ export default function AddMemoryModal({
         isPinned: false
       };
 
-      // Pass to onMemorySubmitted which saves to IndexedDB + Supabase cloud
+      // Direct save to local storage & cloud to guarantee persistence
+      try {
+        await saveMemoryOnline(memoryData);
+      } catch (saveErr) {
+        console.warn('[AddModal] Direct save warning:', saveErr);
+      }
+
+      // Pass to onMemorySubmitted which saves and updates App.jsx memories state
       if (onMemorySubmitted) {
         await onMemorySubmitted(memoryData);
       }
