@@ -11,8 +11,10 @@ import {
   mergeMemories,
   onMemoryBroadcast,
   deleteMemoryOnline,
+  clearAllMemoriesOnline,
   subscribeToMemories
 } from './services/cloudSync';
+import { isDummyMemory } from './services/dbStorage';
 import { isSupabaseConfigured } from './services/supabaseClient';
 
 export default function App() {
@@ -42,9 +44,7 @@ export default function App() {
     return defaultWeddingData.templates;
   });
 
-  const [memories, setMemories] = useState(() => {
-    return defaultWeddingData.memories || [];
-  });
+  const [memories, setMemories] = useState([]);
 
   const [likedMemoryIds, setLikedMemoryIds] = useState(() => {
     try {
@@ -58,6 +58,34 @@ export default function App() {
   const [isConnected, setIsConnected] = useState(false);
   const [syncCount, setSyncCount] = useState(0);
   const [cloudError, setCloudError] = useState(null);
+
+  // One-time client migration: purge obsolete test dummy memories from browser storage
+  useEffect(() => {
+    try {
+      const cached = localStorage.getItem('wedding_memories');
+      if (cached) {
+        try {
+          const parsed = JSON.parse(cached);
+          if (Array.isArray(parsed)) {
+            const cleaned = parsed.filter((m) => !isDummyMemory(m));
+            localStorage.setItem('wedding_memories', JSON.stringify(cleaned));
+          }
+        } catch (e) {
+          localStorage.removeItem('wedding_memories');
+        }
+      }
+      const localSettings = localStorage.getItem('wedding_settings');
+      if (localSettings) {
+        try {
+          const parsed = JSON.parse(localSettings);
+          if (parsed.memories) {
+            delete parsed.memories;
+            localStorage.setItem('wedding_settings', JSON.stringify(parsed));
+          }
+        } catch (e) {}
+      }
+    } catch (e) {}
+  }, []);
 
   // Hash-based routing with Admin Authentication Protection
   useEffect(() => {
@@ -102,7 +130,8 @@ export default function App() {
     const syncData = async () => {
       try {
         const result = await fetchOnlineMemories();
-        const cloudMems = result.memories ?? [];
+        const rawCloudMems = result.memories ?? [];
+        const cloudMems = rawCloudMems.filter((m) => !isDummyMemory(m));
         const connected = result.isCloudConnected ?? false;
 
         setIsConnected(connected);
@@ -112,7 +141,7 @@ export default function App() {
           setCloudError(null);
         }
 
-        if (Array.isArray(cloudMems) && cloudMems.length > 0) {
+        if (Array.isArray(cloudMems)) {
           setMemories((prev) => {
             const next = cloudMems;
             const prevSignature = prev.map((m) => m.id + ':' + (m.likesCount || 0)).join('|');
@@ -146,12 +175,16 @@ export default function App() {
         setMemories((prev) => mergeMemories(prev, [data.memory]));
       } else if (data?.type === 'MEMORY_DELETED' && data.id) {
         setMemories((prev) => prev.filter((m) => m.id !== data.id));
+      } else if (data?.type === 'MEMORY_CLEARED') {
+        setMemories([]);
+        setLatestMemory(null);
       }
     });
 
     // Supabase Realtime — cross-device instant sync
     const unsubscribeRealtime = subscribeToMemories({
       onNewMemory: (newMem) => {
+        if (!newMem || isDummyMemory(newMem)) return;
         console.log('[Realtime] New memory from another device:', newMem.guestName);
         setLatestMemory(newMem);
         setMemories((prev) => {
@@ -161,7 +194,7 @@ export default function App() {
         });
       },
       onUpdateMemory: (updatedMem) => {
-        if (!updatedMem || !updatedMem.id) return;
+        if (!updatedMem || !updatedMem.id || isDummyMemory(updatedMem)) return;
         console.log('[Realtime] Memory updated:', updatedMem.id);
         setMemories((prev) =>
           prev.map((m) => {
@@ -257,7 +290,15 @@ export default function App() {
     await deleteMemoryOnline(id);
   };
 
+  const handleClearAllMemories = async () => {
+    setMemories([]);
+    setLatestMemory(null);
+    await clearAllMemoriesOnline();
+  };
+
   const handlePinMemory = async (_id) => {};
+
+  const cleanMemories = (memories || []).filter((m) => !isDummyMemory(m));
 
   return (
     <div className="w-full min-h-screen bg-[#faf8f5]">
@@ -279,7 +320,7 @@ export default function App() {
         <GuestLanding
           weddingSettings={weddingSettings}
           templates={templates}
-          memories={memories}
+          memories={cleanMemories}
           onLikeMemory={handleLikeMemory}
           likedMemoryIds={likedMemoryIds}
           onAddMemory={handleAddNewMemory}
@@ -295,12 +336,13 @@ export default function App() {
         <AdminPanel
           weddingSettings={weddingSettings}
           templates={templates}
-          memories={memories}
+          memories={cleanMemories}
           onClose={() => navigateTo('guest')}
           onOpenProjector={() => navigateTo('projector')}
           onUpdateCouple={(updatedCouple) => setWeddingSettings((prev) => ({ ...prev, couple: updatedCouple }))}
           onUpdateTemplates={(updatedTpls) => setTemplates(updatedTpls)}
           onDeleteMemory={handleDeleteMemory}
+          onClearAllMemories={handleClearAllMemories}
           onPinMemory={handlePinMemory}
           onLogout={() => {
             try {
@@ -336,7 +378,7 @@ export default function App() {
       {currentView === 'projector' && (
         <ProjectorView
           weddingSettings={weddingSettings}
-          memories={memories}
+          memories={cleanMemories}
           onClose={() => navigateTo('guest')}
           latestMemory={latestMemory}
         />

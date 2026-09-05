@@ -253,32 +253,5 @@ export const defaultWeddingData = {
       pattern: "clean"
     }
   ],
-  memories: [
-    {
-      id: "mem-1788501512659-ltcny3",
-      guestName: "Adisty & Irsyad's Guest",
-      guestMessage: "Selamat menempuh hidup baru untuk Adisty & Irsyad! Bahagia dan langgeng selalu! ✨🕊️",
-      stripUrl: "/uploads/strips/strip-1788501512656-62421.png",
-      rawPhotos: [],
-      templateId: "custom-tpl-mtmgdd1a-nomwy",
-      audioUrl: null,
-      audioDuration: 0,
-      createdAt: "2026-09-04T05:58:32.659Z",
-      likesCount: 7,
-      isPinned: false
-    },
-    {
-      id: "mem-1788501388351-gik73m",
-      guestName: "icad",
-      guestMessage: "Happy Wedding! 🎉🥂",
-      stripUrl: "/uploads/strips/strip-1788501388341-347644.png",
-      rawPhotos: [],
-      templateId: "custom-tpl-mtmhdrc3-4xype",
-      audioUrl: null,
-      audioDuration: 0,
-      createdAt: "2026-09-04T05:56:28.351Z",
-      likesCount: 6,
-      isPinned: false
-    }
-  ]
+  memories: []
 };

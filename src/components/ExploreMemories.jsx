@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Play, Pause, Heart, Download, Sparkles, X, Eye, Volume2 } from 'lucide-react';
+import { isDummyMemory } from '../services/dbStorage';
 
 export default function ExploreMemories({
   memories = [],
@@ -95,7 +96,9 @@ export default function ExploreMemories({
     }
   };
 
-  if (memories.length === 0) {
+  const displayMemories = (memories || []).filter((m) => !isDummyMemory(m));
+
+  if (displayMemories.length === 0) {
     return (
       <div className="py-16 text-center space-y-3">
         <div className="w-14 h-14 rounded-full bg-[#E9DDC5]/40 text-[#263727] flex items-center justify-center mx-auto shadow-sm">
@@ -121,7 +124,7 @@ export default function ExploreMemories({
 
       {/* 2-Column Parallel Grid for Photobooth Results (Posisi Sejajar Sesuai Foto) */}
       <div className="grid grid-cols-2 gap-3 sm:gap-4">
-        {memories.map((m) => {
+        {displayMemories.map((m) => {
           const isLiked = likedMemoryIds.includes(m.id);
 
           return (

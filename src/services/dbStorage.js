@@ -39,6 +39,22 @@ function openDB() {
   });
 }
 
+export function isDummyMemory(memOrRow) {
+  if (!memOrRow) return true;
+  const id = String(memOrRow.id || '');
+  const name = String(memOrRow.guest_name || memOrRow.guestName || '').toLowerCase().trim();
+  const msg = String(memOrRow.message || memOrRow.guest_message || memOrRow.guestMessage || '').trim();
+  const strip = String(memOrRow.strip_image || memOrRow.strip_url || memOrRow.stripUrl || memOrRow.stripImage || '');
+
+  if (id === 'mem-1788501512659-ltcny3' || id === 'mem-1788501388351-gik73m') return true;
+  if (name.includes("adisty & irsyad's guest") || name === 'adisty & irsyad') return true;
+  if (name === 'icad' && (msg.includes('Happy Wedding!') || msg === '')) return true;
+  if (strip.includes('strip-1788501512656') || strip.includes('strip-1788501388341')) return true;
+  if (strip.includes('strip-178799')) return true;
+  if (msg.includes('Selamat menempuh hidup baru untuk Adisty & Irsyad! Bahagia dan langgeng')) return true;
+  return false;
+}
+
 /**
  * Retrieve all memories stored in IndexedDB (fallback to localStorage and default data)
  */
@@ -55,18 +71,29 @@ export async function getAllMemoriesDB() {
     });
 
     if (items && items.length > 0) {
-      items.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-      return items;
+      const validItems = items.filter((m) => !isDummyMemory(m));
+      if (validItems.length !== items.length) {
+        items.forEach((m) => {
+          if (isDummyMemory(m) && m.id) {
+            deleteMemoryDB(m.id).catch(() => {});
+          }
+        });
+      }
+      validItems.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+      return validItems;
     }
+    return [];
   } catch (err) {
     console.warn('IndexedDB read fallback to localStorage:', err);
   }
 
   try {
     const cached = JSON.parse(localStorage.getItem('wedding_memories') || '[]');
-    if (Array.isArray(cached) && cached.length > 0) return cached;
+    if (Array.isArray(cached) && cached.length > 0) {
+      return cached.filter((m) => !isDummyMemory(m));
+    }
   } catch (e) {}
-  return defaultWeddingData.memories || [];
+  return [];
 }
 
 /**
@@ -163,6 +190,33 @@ export async function deleteMemoryDB(id) {
     }
   } catch (err) {
     console.error('Delete from IndexedDB error:', err);
+  }
+}
+
+/**
+ * Clear all memories from IndexedDB and localStorage
+ */
+export async function clearAllMemoriesDB() {
+  try {
+    const db = await openDB();
+    const tx = db.transaction(STORE_NAME, 'readwrite');
+    const store = tx.objectStore(STORE_NAME);
+
+    await new Promise((resolve, reject) => {
+      const request = store.clear();
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+    });
+  } catch (err) {
+    console.warn('Clear IndexedDB warning:', err);
+  }
+
+  try {
+    localStorage.removeItem('wedding_memories');
+  } catch (e) {}
+
+  if (broadcastChannel) {
+    broadcastChannel.postMessage({ type: 'MEMORY_CLEARED' });
   }
 }
 

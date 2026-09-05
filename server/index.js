@@ -280,7 +280,7 @@ app.post('/api/memories/:id/pin', (req, res) => {
   }
 });
 
-// 10. Delete Memory (Admin)
+// 10. Delete Single Memory (Admin)
 app.delete('/api/memories/:id', (req, res) => {
   const deleted = storage.deleteMemory(req.params.id);
   if (deleted) {
@@ -288,6 +288,18 @@ app.delete('/api/memories/:id', (req, res) => {
     res.json({ success: true, data: deleted });
   } else {
     res.status(404).json({ success: false, message: 'Memory not found' });
+  }
+});
+
+// 10.1 Clear All Memories (Admin)
+app.delete('/api/memories', (req, res) => {
+  try {
+    storage.clearMemories();
+    broadcastMemories();
+    io.emit('memories:cleared');
+    res.json({ success: true, message: 'All memories cleared' });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
   }
 });
 

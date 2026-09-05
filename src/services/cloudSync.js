@@ -4,6 +4,8 @@ import {
   saveMemoryDB,
   saveBulkMemoriesDB,
   deleteMemoryDB,
+  clearAllMemoriesDB,
+  isDummyMemory,
   onMemoryBroadcast
 } from './dbStorage';
 import {
@@ -38,34 +40,17 @@ export function getDeviceId() {
 export function mergeMemories(localList = [], remoteList = []) {
   const map = new Map();
 
-  const hasRemoteData = Array.isArray(remoteList) && remoteList.length > 0;
-  const hasLocalUploads = Array.isArray(localList) && localList.some((m) => {
-    return m && m.id && !m.id.startsWith('mem-default') && !m.isDefault;
-  });
-  const hasAnyRealData = hasRemoteData || hasLocalUploads;
-
-  // 1. If no real data at all, seed with default memories
-  if (!hasAnyRealData) {
-    (defaultWeddingData.memories || []).forEach((m) => {
-      if (m && m.id) {
-        map.set(m.id, {
-          ...m,
-          stripUrl: m.stripUrl || m.stripImage,
-          stripImage: m.stripImage || m.stripUrl,
-          message: m.message || m.guestMessage || '',
-          guestMessage: m.guestMessage || m.message || '',
-        });
-      }
-    });
+  // If both are empty, return []
+  if ((!localList || localList.length === 0) && (!remoteList || remoteList.length === 0)) {
+    return [];
   }
 
-  // 2. Add local memories (device offline cache / newly uploaded)
+  // 1. Add local memories (device offline cache / newly uploaded)
   if (Array.isArray(localList)) {
     localList.forEach((m) => {
       if (m && m.id) {
-        // Skip default items if we have real data
-        const isDefaultItem = (defaultWeddingData.memories || []).some((d) => d.id === m.id);
-        if (hasAnyRealData && isDefaultItem) return;
+        // Filter out legacy dummy memories
+        if (isDummyMemory(m)) return;
 
         const strip = m.stripUrl || m.stripImage || null;
         const msg = m.message || m.guestMessage || '';
@@ -85,10 +70,13 @@ export function mergeMemories(localList = [], remoteList = []) {
     });
   }
 
-  // 3. Remote memories merge with local (preserve valid local images/audio if remote field is empty)
+  // 2. Remote memories merge with local (preserve valid local images/audio if remote field is empty)
   if (Array.isArray(remoteList)) {
     remoteList.forEach((m) => {
       if (m && m.id) {
+        // Filter out legacy dummy memories
+        if (isDummyMemory(m)) return;
+
         const existing = map.get(m.id) || {};
         const isExistingStripValid = existing.stripImage && existing.stripImage.length > 50 && existing.stripImage !== 'data:,';
         const isRemoteStripValid = m.stripImage && m.stripImage.length > 50 && m.stripImage !== 'data:,';
@@ -118,6 +106,8 @@ export function mergeMemories(localList = [], remoteList = []) {
 
 // Map database / backend row -> app memory object
 function rowToMemory(row) {
+  if (!row || isDummyMemory(row)) return null;
+
   let strip = row.strip_image || row.strip_url || row.stripUrl || row.stripImage || row.image_url || row.photo_url || row.strip || null;
   // If strip is invalid (e.g. "data:," or too short or whitespace), treat as null
   if (strip && (typeof strip !== 'string' || strip.length < 50 || strip === 'data:,' || !strip.trim())) {
@@ -204,8 +194,16 @@ export async function fetchOnlineMemories() {
         .limit(300);
 
       if (!error && Array.isArray(data)) {
-        remoteMemories = data.map(rowToMemory);
+        remoteMemories = data.map(rowToMemory).filter(Boolean);
         isCloudConnected = true;
+
+        // Auto-purge dummy memories from cloud database in background
+        client
+          .from('memories')
+          .delete()
+          .or("id.eq.mem-1788501512659-ltcny3,id.eq.mem-1788501388351-gik73m,guest_name.ilike.%Adisty & Irsyad's Guest%,guest_name.ilike.icad")
+          .then(() => {})
+          .catch(() => {});
       } else if (error) {
         console.warn('[Sync] Supabase fetch error:', error.message);
         if (error.code === 'PGRST204' || error.message?.includes('guest_name') || error.code === '42P01') {
@@ -224,7 +222,7 @@ export async function fetchOnlineMemories() {
     if (res.ok) {
       const json = await res.json();
       if (json?.success && Array.isArray(json.data) && json.data.length > 0) {
-        const backendMems = json.data.map(rowToMemory);
+        const backendMems = json.data.map(rowToMemory).filter(Boolean);
         remoteMemories = [...backendMems, ...remoteMemories];
       }
     }
@@ -383,6 +381,36 @@ export async function deleteMemoryOnline(memoryId) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Clear ALL memories from Supabase, backend API, and local IndexedDB
+// ─────────────────────────────────────────────────────────────────────────────
+export async function clearAllMemoriesOnline() {
+  // 1. Clear IndexedDB and LocalStorage
+  try {
+    await clearAllMemoriesDB();
+  } catch (e) {
+    console.warn('[Sync] clearAllMemoriesDB error:', e);
+  }
+
+  // 2. Call backend DELETE endpoint if server is available
+  try {
+    await fetch('/api/memories', { method: 'DELETE' });
+  } catch (e) {}
+
+  // 3. Clear Supabase table if configured
+  const client = getSupabaseClient();
+  const creds = getSupabaseCredentials();
+  if (creds.isConfigured && client) {
+    try {
+      await client.from('memories').delete().neq('id', '');
+    } catch (e) {
+      console.warn('[Sync] Supabase clear all error:', e);
+    }
+  }
+
+  return { success: true };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Supabase Realtime — instant multi-device sync
 // ─────────────────────────────────────────────────────────────────────────────
 export function subscribeToMemories(callbacks = {}) {
@@ -415,7 +443,9 @@ export function subscribeToMemories(callbacks = {}) {
           console.log('[Realtime event]', payload.eventType, payload.new?.id || payload.old?.id);
 
           if (payload.eventType === 'INSERT' && payload.new) {
+            if (isDummyMemory(payload.new)) return;
             let mem = rowToMemory(payload.new);
+            if (!mem) return;
             saveMemoryDB(mem).catch(() => {});
             onNewMemory?.(mem);
 

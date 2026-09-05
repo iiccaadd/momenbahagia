@@ -122,6 +122,7 @@ export default function AdminPanel({
   onUpdateCouple,
   onUpdateTemplates,
   onDeleteMemory,
+  onClearAllMemories,
   onPinMemory,
   onLogout,
 }) {
@@ -821,7 +822,7 @@ export default function AdminPanel({
         {/* TAB 2: MEMORIES MODERATION */}
         {activeTab === 'memories' && (
           <div className="space-y-4">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#e8dfd5] pb-4">
               <div>
                 <h3 className="font-serif-elegant font-bold text-lg text-[#3a2c1f]">
                   Daftar Kenangan & Pesan Suara Tamu
@@ -830,104 +831,141 @@ export default function AdminPanel({
                   Total {memories.length} ucapan dan foto strip masuk
                 </p>
               </div>
+
+              {memories.length > 0 && (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const confirmed = await notify.confirm(
+                      'Apakah Anda yakin ingin menghapus SEMUA kenangan dan foto yang telah diupload? Tampilan tamu dan proyektor akan menjadi kosong dan bersih untuk persiapan acara.',
+                      'Kosongkan Semua Kenangan',
+                      'Ya, Hapus Semua',
+                      'Batal'
+                    );
+                    if (confirmed) {
+                      onClearAllMemories && onClearAllMemories();
+                      notify.success('Semua kenangan dan foto berhasil dikosongkan.');
+                    }
+                  }}
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-semibold border border-rose-200 transition-all shadow-xs"
+                  title="Hapus semua foto dan ucapan tamu"
+                >
+                  <Trash2 className="w-4 h-4 text-rose-600" />
+                  Kosongkan Tampilan Tamu ({memories.length})
+                </button>
+              )}
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {memories.map((m) => (
-                <div
-                  key={m.id}
-                  className="bg-white rounded-3xl p-4 shadow-sm border border-[#e8dfd5] flex flex-col justify-between"
-                >
-                  <div>
-                    <div className="flex items-start justify-between gap-2 mb-2">
-                      <div>
-                        <div className="font-bold text-sm text-[#3a2c1f]">{m.guestName}</div>
-                        <div className="text-[10px] text-[#8c7b6d]">
-                          {new Date(m.createdAt).toLocaleString()}
+            {memories.length === 0 ? (
+              <div className="bg-white rounded-3xl p-12 text-center space-y-3 border border-[#e8dfd5] shadow-sm">
+                <div className="w-16 h-16 rounded-full bg-[#faf6f0] text-[#c5a880] flex items-center justify-center mx-auto shadow-inner">
+                  <Sparkles className="w-8 h-8" />
+                </div>
+                <h4 className="font-serif-elegant font-bold text-base text-[#3a2c1f]">
+                  Belum Ada Kenangan yang Diunggah
+                </h4>
+                <p className="text-xs text-[#7a6b5d] max-w-sm mx-auto">
+                  Tampilan tamu saat ini kosong dan bersih. Foto dan ucapan yang dikirimkan oleh tamu undangan saat acara berlangsung akan otomatis tampil di sini secara real-time.
+                </p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {memories.map((m) => (
+                  <div
+                    key={m.id}
+                    className="bg-white rounded-3xl p-4 shadow-sm border border-[#e8dfd5] flex flex-col justify-between"
+                  >
+                    <div>
+                      <div className="flex items-start justify-between gap-2 mb-2">
+                        <div>
+                          <div className="font-bold text-sm text-[#3a2c1f]">{m.guestName}</div>
+                          <div className="text-[10px] text-[#8c7b6d]">
+                            {new Date(m.createdAt).toLocaleString()}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => onPinMemory && onPinMemory(m.id)}
+                            className={`p-1.5 rounded-lg transition-colors ${
+                              m.isPinned
+                                ? 'bg-amber-100 text-amber-700'
+                                : 'text-gray-400 hover:bg-gray-100'
+                            }`}
+                            title={m.isPinned ? 'Lepas Pin' : 'Sematkan di Atas'}
+                          >
+                            <Pin className="w-4 h-4" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              const confirmed = await notify.confirm(
+                                `Apakah Anda yakin ingin menghapus kenangan dari "${m.guestName}"?`,
+                                'Hapus Kenangan',
+                                'Ya, Hapus',
+                                'Batal'
+                              );
+                              if (confirmed) {
+                                onDeleteMemory && onDeleteMemory(m.id);
+                                notify.success('Kenangan berhasil dihapus.');
+                              }
+                            }}
+                            className="p-1.5 text-gray-400 hover:text-rose-600 rounded-lg transition-colors"
+                            title="Hapus Kenangan"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
                         </div>
                       </div>
-                      <div className="flex items-center gap-1">
-                        <button
-                          type="button"
-                          onClick={() => onPinMemory && onPinMemory(m.id)}
-                          className={`p-1.5 rounded-lg transition-colors ${
-                            m.isPinned
-                              ? 'bg-amber-100 text-amber-700'
-                              : 'text-gray-400 hover:bg-gray-100'
-                          }`}
-                          title={m.isPinned ? 'Lepas Pin' : 'Sematkan di Atas'}
-                        >
-                          <Pin className="w-4 h-4" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={async () => {
-                            const confirmed = await notify.confirm(
-                              `Apakah Anda yakin ingin menghapus kenangan dari "${m.guestName}"?`,
-                              'Hapus Kenangan',
-                              'Ya, Hapus',
-                              'Batal'
-                            );
-                            if (confirmed) {
-                              onDeleteMemory && onDeleteMemory(m.id);
-                              notify.success('Kenangan berhasil dihapus.');
-                            }
-                          }}
-                          className="p-1.5 text-gray-400 hover:text-rose-600 rounded-lg transition-colors"
-                          title="Hapus Kenangan"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+
+                      <div className="rounded-2xl overflow-hidden bg-[#faf8f5] p-2 flex justify-center mb-3">
+                        <img
+                          src={m.stripImage || m.stripUrl}
+                          alt={m.guestName}
+                          className="max-h-[220px] w-auto rounded-lg object-contain"
+                        />
                       </div>
+
+                      {m.audioUrl && (
+                        <div className="mb-2 p-2 rounded-xl bg-[#faf6f0] border border-[#ebdccb] flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => handlePlayVoice(m.id, m.audioUrl)}
+                            className="w-7 h-7 rounded-full bg-[#c5a880] text-white flex items-center justify-center shadow"
+                          >
+                            {activeAudioId === m.id ? (
+                              <Pause className="w-3.5 h-3.5 fill-white" />
+                            ) : (
+                              <Play className="w-3.5 h-3.5 fill-white ml-0.5" />
+                            )}
+                          </button>
+                          <span className="text-[11px] font-medium text-[#4a3b2c]">
+                            {activeAudioId === m.id ? 'Memutar suara...' : 'Putar Pesan Suara'}
+                          </span>
+                        </div>
+                      )}
+
+                      {(m.message || m.guestMessage) && (
+                        <div className="text-xs text-[#5e4b3c] italic bg-[#fcfaf7] p-2.5 rounded-xl border border-[#efe9e0] mb-3">
+                          "{m.message || m.guestMessage}"
+                        </div>
+                      )}
                     </div>
 
-                    <div className="rounded-2xl overflow-hidden bg-[#faf8f5] p-2 flex justify-center mb-3">
-                      <img
-                        src={m.stripImage || m.stripUrl}
-                        alt={m.guestName}
-                        className="max-h-[220px] w-auto rounded-lg object-contain"
-                      />
+                    <div className="pt-2 border-t border-[#f1ede8] flex items-center justify-between text-xs">
+                      <span className="text-[#8c7b6d]">💖 {m.likesCount || 0} Suka</span>
+                      <a
+                        href={m.stripImage || m.stripUrl}
+                        download={`photostrip-${m.guestName}.png`}
+                        className="inline-flex items-center gap-1 text-[#c5a880] hover:underline font-medium"
+                      >
+                        <Download className="w-3.5 h-3.5" /> Unduh
+                      </a>
                     </div>
-
-                    {m.audioUrl && (
-                      <div className="mb-2 p-2 rounded-xl bg-[#faf6f0] border border-[#ebdccb] flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => handlePlayVoice(m.id, m.audioUrl)}
-                          className="w-7 h-7 rounded-full bg-[#c5a880] text-white flex items-center justify-center shadow"
-                        >
-                          {activeAudioId === m.id ? (
-                            <Pause className="w-3.5 h-3.5 fill-white" />
-                          ) : (
-                            <Play className="w-3.5 h-3.5 fill-white ml-0.5" />
-                          )}
-                        </button>
-                        <span className="text-[11px] font-medium text-[#4a3b2c]">
-                          {activeAudioId === m.id ? 'Memutar suara...' : 'Putar Pesan Suara'}
-                        </span>
-                      </div>
-                    )}
-
-                    {(m.message || m.guestMessage) && (
-                      <div className="text-xs text-[#5e4b3c] italic bg-[#fcfaf7] p-2.5 rounded-xl border border-[#efe9e0] mb-3">
-                        "{m.message || m.guestMessage}"
-                      </div>
-                    )}
                   </div>
-
-                  <div className="pt-2 border-t border-[#f1ede8] flex items-center justify-between text-xs">
-                    <span className="text-[#8c7b6d]">💖 {m.likesCount || 0} Suka</span>
-                    <a
-                      href={m.stripImage || m.stripUrl}
-                      download={`photostrip-${m.guestName}.png`}
-                      className="inline-flex items-center gap-1 text-[#c5a880] hover:underline font-medium"
-                    >
-                      <Download className="w-3.5 h-3.5" /> Unduh
-                    </a>
-                  </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 

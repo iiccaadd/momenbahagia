@@ -3,6 +3,7 @@ import { Camera, Volume2, VolumeX, Lock, Tv, Sparkles, X, ArrowLeft, Heart, Mail
 import ExploreMemories from './ExploreMemories';
 import AddMemoryModal from './AddMemoryModal';
 import PolaroidIntro from './PolaroidIntro';
+import { isDummyMemory } from '../services/dbStorage';
 
 export default function GuestLanding({
   weddingSettings,
@@ -16,6 +17,7 @@ export default function GuestLanding({
   isConnected = false,
   syncCount = 0,
 }) {
+  const validMemories = (memories || []).filter((m) => !isDummyMemory(m));
   const [isIntroOpen, setIsIntroOpen] = useState(true);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isExploreOpen, setIsExploreOpen] = useState(false);
@@ -197,7 +199,7 @@ export default function GuestLanding({
               onClick={() => setIsExploreOpen(true)}
               className="w-full py-2 text-xs font-semibold text-[#263727] hover:text-[#1d2b1e] tracking-[0.06em] uppercase underline underline-offset-4 transition-colors"
             >
-              Jelajahi Kenangan ({memories.length})
+              Jelajahi Kenangan ({validMemories.length})
             </button>
           </div>
 
@@ -261,7 +263,7 @@ export default function GuestLanding({
             {/* Modal Body */}
             <div className="p-3 sm:p-4 overflow-y-auto flex-1">
               <ExploreMemories
-                memories={memories}
+                memories={validMemories}
                 onLike={onLikeMemory}
                 likedMemoryIds={likedMemoryIds}
                 couple={couple}

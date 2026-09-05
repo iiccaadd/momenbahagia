@@ -69,6 +69,9 @@ export default function AddMemoryModal({
   useEffect(() => {
     if (isOpen) {
       setCurrentStep(1);
+      setGuestName('');
+      setGuestMessage('');
+      setPhotos(new Array(selectedTemplate?.slotCount || 3).fill(null));
       setAudioData(null);
       setGeneratedStripUrl(null);
       setIsSuccess(false);

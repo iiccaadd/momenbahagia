@@ -271,34 +271,7 @@ const defaultSettings = {
       pattern: "clean"
     }
   ],
-  memories: [
-    {
-      id: "mem-1788501512659-ltcny3",
-      guestName: "Adisty & Irsyad's Guest",
-      guestMessage: "Selamat menempuh hidup baru untuk Adisty & Irsyad! Bahagia dan langgeng selalu! ✨🕊️",
-      stripUrl: "/uploads/strips/strip-1788501512656-62421.png",
-      rawPhotos: [],
-      templateId: "custom-tpl-mtmgdd1a-nomwy",
-      audioUrl: null,
-      audioDuration: 0,
-      createdAt: "2026-09-04T05:58:32.659Z",
-      likesCount: 7,
-      isPinned: false
-    },
-    {
-      id: "mem-1788501388351-gik73m",
-      guestName: "icad",
-      guestMessage: "Happy Wedding! 🎉🥂",
-      stripUrl: "/uploads/strips/strip-1788501388341-347644.png",
-      rawPhotos: [],
-      templateId: "custom-tpl-mtmhdrc3-4xype",
-      audioUrl: null,
-      audioDuration: 0,
-      createdAt: "2026-09-04T05:56:28.351Z",
-      likesCount: 6,
-      isPinned: false
-    }
-  ]
+  memories: []
 };
 
 class Storage {
@@ -485,6 +458,41 @@ class Storage {
       return removed;
     }
     return null;
+  }
+
+  clearMemories() {
+    this.data.memories = [];
+    this.save();
+
+    // Clean physical uploaded strips
+    try {
+      const stripsDir = path.join(UPLOADS_DIR, 'strips');
+      if (fs.existsSync(stripsDir)) {
+        const files = fs.readdirSync(stripsDir);
+        files.forEach((f) => {
+          try { fs.unlinkSync(path.join(stripsDir, f)); } catch (e) {}
+        });
+      }
+    } catch (e) {
+      console.warn('Error clearing strips folder:', e);
+    }
+
+    // Clean physical uploaded voice notes (keep bgm!)
+    try {
+      const audioDir = path.join(UPLOADS_DIR, 'audio');
+      if (fs.existsSync(audioDir)) {
+        const files = fs.readdirSync(audioDir);
+        files.forEach((f) => {
+          if (f.endsWith('.webm')) {
+            try { fs.unlinkSync(path.join(audioDir, f)); } catch (e) {}
+          }
+        });
+      }
+    } catch (e) {
+      console.warn('Error clearing audio folder:', e);
+    }
+
+    return true;
   }
 }
 
