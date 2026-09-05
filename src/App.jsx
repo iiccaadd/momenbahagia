@@ -1,5 +1,4 @@
-import React, { useState, useEffect } from 'react';
-import { socket } from './socket';
+﻿import React, { useState, useEffect } from 'react';
 import GuestLanding from './components/GuestLanding';
 import AdminPanel from './components/AdminPanel';
 import ProjectorView from './components/ProjectorView';
@@ -13,18 +12,16 @@ import {
   deleteMemoryOnline,
   subscribeToMemories
 } from './services/cloudSync';
+import { isSupabaseConfigured } from './services/supabaseClient';
 
 export default function App() {
-  const [currentView, setCurrentView] = useState('guest'); // 'guest', 'admin', 'projector'
-  
-  // Initialize with saved local storage or rich defaults
+  const [currentView, setCurrentView] = useState('guest');
+
   const [weddingSettings, setWeddingSettings] = useState(() => {
     try {
       const local = localStorage.getItem('wedding_settings');
       if (local) return JSON.parse(local);
-    } catch (e) {
-      console.warn('Failed reading wedding_settings from localStorage', e);
-    }
+    } catch (e) {}
     return defaultWeddingData;
   });
 
@@ -32,36 +29,28 @@ export default function App() {
     try {
       const local = localStorage.getItem('wedding_templates');
       if (local) return JSON.parse(local);
-    } catch (e) {
-      console.warn('Failed reading wedding_templates from localStorage', e);
-    }
+    } catch (e) {}
     return defaultWeddingData.templates;
   });
 
   const [memories, setMemories] = useState(() => {
-    try {
-      const local = localStorage.getItem('wedding_memories');
-      if (local) return JSON.parse(local);
-    } catch (e) {
-      console.warn('Failed reading wedding_memories from localStorage', e);
-    }
-    return defaultWeddingData.memories;
+    // Start with empty so we always show fresh cloud data first
+    return [];
   });
 
   const [likedMemoryIds, setLikedMemoryIds] = useState(() => {
     try {
       const local = localStorage.getItem('user_liked_memories');
       if (local) return JSON.parse(local);
-    } catch (e) {
-      console.warn('Failed reading liked memories', e);
-    }
+    } catch (e) {}
     return [];
   });
 
   const [latestMemory, setLatestMemory] = useState(null);
-  const [isConnected, setIsConnected] = useState(true);
+  const [isConnected, setIsConnected] = useState(false);
+  const [syncCount, setSyncCount] = useState(0);
 
-  // Sync route on hash change
+  // Hash-based routing
   useEffect(() => {
     const handleHash = () => {
       const hash = window.location.hash.replace('#', '');
@@ -69,7 +58,6 @@ export default function App() {
       else if (hash === 'projector' || hash === 'live') setCurrentView('projector');
       else setCurrentView('guest');
     };
-
     handleHash();
     window.addEventListener('hashchange', handleHash);
     return () => window.removeEventListener('hashchange', handleHash);
@@ -80,43 +68,50 @@ export default function App() {
     setCurrentView(view);
   };
 
-  // 1. Persistent Storage & Cloud Sync Engine
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Cloud Sync Engine — polls Supabase every 5s + Realtime subscription
+  // ─────────────────────────────────────────────────────────────────────────────
   useEffect(() => {
     const syncData = async () => {
       try {
-        const cloudMems = await fetchOnlineMemories();
+        const result = await fetchOnlineMemories();
+        const cloudMems = result.memories ?? result; // backwards-compat
+        const connected = result.isCloudConnected ?? isSupabaseConfigured;
+
+        setIsConnected(connected);
+
         if (Array.isArray(cloudMems) && cloudMems.length > 0) {
           setMemories((prev) => {
-            const merged = mergeMemories(prev, cloudMems);
-            if (JSON.stringify(prev) !== JSON.stringify(merged)) {
-              return merged;
-            }
-            return prev;
+            // Deep equality check to avoid unnecessary re-renders
+            const next = cloudMems;
+            const prevIds = prev.map((m) => m.id + (m.likesCount || 0)).join(',');
+            const nextIds = next.map((m) => m.id + (m.likesCount || 0)).join(',');
+            if (prevIds === nextIds && prev.length === next.length) return prev;
+            return next;
           });
-          setIsConnected(true);
+          setSyncCount((n) => n + 1);
+        } else if (Array.isArray(cloudMems) && cloudMems.length === 0 && !connected) {
+          // Supabase not configured — show default template data
+          setMemories(defaultWeddingData.memories || []);
         }
       } catch (e) {
-        console.warn('Sync loop error:', e);
+        console.warn('[App] Sync error:', e);
       }
     };
 
-    // Initial load immediately from IndexedDB & Cloud
+    // Immediate first load
     syncData();
 
-    // Polling interval (every 8 seconds)
-    const interval = setInterval(syncData, 8000);
+    // Poll every 5 seconds for cross-device updates
+    const interval = setInterval(syncData, 5000);
 
-    // Sync on window focus / tab visibility change
-    const onVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
-        syncData();
-      }
-    };
+    // Extra sync on tab focus (user returns to app)
+    const onFocus = () => syncData();
+    const onVisible = () => { if (document.visibilityState === 'visible') syncData(); };
+    window.addEventListener('focus', onFocus);
+    window.addEventListener('visibilitychange', onVisible);
 
-    window.addEventListener('visibilitychange', onVisibilityChange);
-    window.addEventListener('focus', syncData);
-
-    // Tab-to-Tab instant synchronization via BroadcastChannel
+    // BroadcastChannel — same-device multi-tab sync (instant)
     const unsubscribeBroadcast = onMemoryBroadcast((data) => {
       if (data?.type === 'MEMORY_SAVED' && data.memory) {
         setLatestMemory(data.memory);
@@ -126,61 +121,38 @@ export default function App() {
       }
     });
 
-    // Supabase Realtime — instant cross-device sync when a new photo is uploaded
-    const unsubscribeSupabase = subscribeToMemories((newMem) => {
+    // Supabase Realtime — different-device instant push (no polling needed)
+    const unsubscribeRealtime = subscribeToMemories((newMem) => {
+      console.log('[Realtime] New photo from another device:', newMem.guestName);
       setLatestMemory(newMem);
-      setMemories((prev) => mergeMemories(prev, [newMem]));
+      setMemories((prev) => {
+        const exists = prev.find((m) => m.id === newMem.id);
+        if (exists) return prev;
+        return [newMem, ...prev];
+      });
     });
 
     return () => {
       clearInterval(interval);
-      window.removeEventListener('visibilitychange', onVisibilityChange);
-      window.removeEventListener('focus', syncData);
+      window.removeEventListener('focus', onFocus);
+      window.removeEventListener('visibilitychange', onVisible);
       unsubscribeBroadcast();
-      unsubscribeSupabase();
+      unsubscribeRealtime();
     };
   }, []);
 
-  // 2. Socket Listeners (for Local Dev or WebSocket Backend)
-  useEffect(() => {
-    const onConnect = () => setIsConnected(true);
-    const onDisconnect = () => {};
-
-    const onMemoryNew = (newMem) => {
-      setLatestMemory(newMem);
-      setMemories((prev) => mergeMemories(prev, [newMem]));
-    };
-
-    const onMemoryLiked = ({ id, likesCount }) => {
-      setMemories((prev) => {
-        return prev.map((m) => (m.id === id ? { ...m, likesCount } : m));
-      });
-    };
-
-    socket.on('connect', onConnect);
-    socket.on('disconnect', onDisconnect);
-    socket.on('memory:new', onMemoryNew);
-    socket.on('memory:liked', onMemoryLiked);
-
-    return () => {
-      socket.off('connect', onConnect);
-      socket.off('disconnect', onDisconnect);
-      socket.off('memory:new', onMemoryNew);
-      socket.off('memory:liked', onMemoryLiked);
-    };
-  }, []);
-
-  // Handle adding new guest memory persistently across all devices
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Handlers
+  // ─────────────────────────────────────────────────────────────────────────────
   const handleAddNewMemory = async (newMem) => {
     if (!newMem) return;
+    // Optimistic UI — show immediately on this device
     setLatestMemory(newMem);
-    setMemories((prev) => mergeMemories(prev, [newMem]));
-
-    // Save to IndexedDB and push to cloud
+    setMemories((prev) => [newMem, ...prev.filter((m) => m.id !== newMem.id)]);
+    // Push to cloud (Supabase will trigger Realtime on other devices)
     await saveMemoryOnline(newMem);
   };
 
-  // Toggle Love / Unlove per client and sync to cloud
   const handleLikeMemory = async (id) => {
     const isAlreadyLiked = likedMemoryIds.includes(id);
     const nextLikedIds = isAlreadyLiked
@@ -188,23 +160,18 @@ export default function App() {
       : [...likedMemoryIds, id];
 
     setLikedMemoryIds(nextLikedIds);
-    try {
-      localStorage.setItem('user_liked_memories', JSON.stringify(nextLikedIds));
-    } catch (e) {}
+    try { localStorage.setItem('user_liked_memories', JSON.stringify(nextLikedIds)); } catch (e) {}
 
-    // Optimistic UI update
-    setMemories((prev) => {
-      return prev.map((m) => {
+    setMemories((prev) =>
+      prev.map((m) => {
         if (m.id === id) {
           const delta = isAlreadyLiked ? -1 : 1;
-          const count = Math.max(0, (m.likesCount || 0) + delta);
-          return { ...m, likesCount: count };
+          return { ...m, likesCount: Math.max(0, (m.likesCount || 0) + delta) };
         }
         return m;
-      });
-    });
+      })
+    );
 
-    // Sync like to IndexedDB and cloud
     await toggleLikeOnline(id, !isAlreadyLiked);
   };
 
@@ -213,9 +180,7 @@ export default function App() {
     await deleteMemoryOnline(id);
   };
 
-  const handlePinMemory = async (_id) => {
-    // Pin feature reserved for future implementation
-  };
+  const handlePinMemory = async (_id) => {};
 
   return (
     <div className="w-full min-h-screen bg-[#faf8f5]">
@@ -230,6 +195,7 @@ export default function App() {
           onOpenAdmin={() => navigateTo('admin')}
           onOpenProjector={() => navigateTo('projector')}
           isConnected={isConnected}
+          syncCount={syncCount}
         />
       )}
 

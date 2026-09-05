@@ -13,7 +13,8 @@ export default function GuestLanding({
   onAddMemory,
   onOpenAdmin,
   onOpenProjector,
-  isConnected = true,
+  isConnected = false,
+  syncCount = 0,
 }) {
   const [isIntroOpen, setIsIntroOpen] = useState(true);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -95,8 +96,8 @@ export default function GuestLanding({
       <header className="fixed top-3 inset-x-3 sm:inset-x-6 z-40 flex items-center justify-between pointer-events-none">
         {/* Realtime Live Indicator */}
         <div className="pointer-events-auto flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-black/45 backdrop-blur-md text-[#F6F4EE] text-[11px] font-medium shadow-md">
-          <span className={`w-2 h-2 rounded-full ${isConnected ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`}></span>
-          <span className="opacity-90">{isConnected ? 'Live Sync Active' : 'Menghubungkan...'}</span>
+          <span className={`w-2 h-2 rounded-full ${isConnected ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400 animate-pulse'}`}></span>
+          <span className="opacity-90">{isConnected ? 'Cloud Sync ✓' : 'Menghubungkan...'}</span>
         </div>
 
         {/* Quick Actions (Replay Polaroid Intro, BGM, Projector Screen, Admin) */}

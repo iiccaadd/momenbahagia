@@ -25,34 +25,47 @@ export function getDeviceId() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Merge local + remote memories without losing any photos
+// Merge memories: REMOTE (Supabase) always wins over local defaults.
+// Local-only memories (uploaded by THIS device before cloud sync) are preserved.
 // ─────────────────────────────────────────────────────────────────────────────
 export function mergeMemories(localList = [], remoteList = []) {
   const map = new Map();
 
+  // 1. Start with built-in template memories as baseline
   (defaultWeddingData.memories || []).forEach((m) => {
-    if (m && m.id) map.set(m.id, { ...m });
+    if (m && m.id) map.set(m.id, { ...m, _source: 'default' });
   });
 
-  if (Array.isArray(remoteList)) {
-    remoteList.forEach((m) => {
-      if (m && m.id) {
-        const existing = map.get(m.id) || {};
-        map.set(m.id, { ...existing, ...m });
-      }
-    });
-  }
-
+  // 2. Layer in local memories (uploaded on this device, not yet in cloud)
   if (Array.isArray(localList)) {
     localList.forEach((m) => {
       if (m && m.id) {
         const existing = map.get(m.id) || {};
-        map.set(m.id, { ...existing, ...m });
+        // Only keep local if it's not a default template item
+        map.set(m.id, { ...existing, ...m, _source: existing._source === 'default' ? 'default' : 'local' });
       }
     });
   }
 
-  const result = Array.from(map.values());
+  // 3. Remote (Supabase) always wins — it's the source of truth across devices
+  if (Array.isArray(remoteList)) {
+    remoteList.forEach((m) => {
+      if (m && m.id) {
+        const existing = map.get(m.id) || {};
+        map.set(m.id, { ...existing, ...m, _source: 'remote' });
+      }
+    });
+  }
+
+  // 4. Filter out default template items if we have real remote data
+  const hasRemoteData = remoteList.length > 0;
+  const result = Array.from(map.values()).filter((m) => {
+    // Keep defaults only if there is no remote data at all
+    if (m._source === 'default' && hasRemoteData) return false;
+    return true;
+  });
+
+  // Sort newest first
   result.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
   return result;
 }
@@ -84,8 +97,8 @@ function memoryToRow(mem) {
     guest_name: mem.guestName || mem.guest_name || '',
     message: mem.message || '',
     strip_image: mem.stripImage || mem.strip_image || null,
-    gallery_photos: mem.galleryPhotos || mem.gallery_photos || [],
-    liked_ips: mem.likedIps || mem.liked_ips || [],
+    gallery_photos: Array.isArray(mem.galleryPhotos) ? mem.galleryPhotos : (mem.gallery_photos || []),
+    liked_ips: Array.isArray(mem.likedIps) ? mem.likedIps : (mem.liked_ips || []),
     likes_count: mem.likesCount || mem.likes_count || 0,
     created_at: mem.createdAt || mem.created_at || new Date().toISOString(),
     template_id: mem.templateId || mem.template_id || null,
@@ -96,59 +109,65 @@ function memoryToRow(mem) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Fetch all memories: Supabase first, fallback to IndexedDB
+// Fetch all memories: Supabase (cloud) + IndexedDB (local offline cache)
+// Returns { memories, isCloudConnected }
 // ─────────────────────────────────────────────────────────────────────────────
 export async function fetchOnlineMemories() {
-  // 1. Load local IndexedDB (always fast & offline-safe)
+  // 1. Load local IndexedDB (fast, offline-safe)
   let localMemories = [];
   try {
     localMemories = await getAllMemoriesDB();
   } catch (err) {
-    console.warn('IndexedDB read error:', err);
+    console.warn('[Sync] IndexedDB read error:', err);
   }
 
   let remoteMemories = [];
+  let isCloudConnected = false;
 
-  // 2. Fetch from Supabase (cross-device cloud)
+  // 2. Fetch from Supabase — the cross-device source of truth
   if (isSupabaseConfigured && supabase) {
     try {
       const { data, error } = await supabase
         .from('memories')
         .select('*')
         .order('created_at', { ascending: false })
-        .limit(200);
+        .limit(300);
 
       if (!error && Array.isArray(data)) {
         remoteMemories = data.map(rowToMemory);
+        isCloudConnected = true;
+        console.log(`[Sync] Fetched ${remoteMemories.length} memories from Supabase`);
       } else if (error) {
-        console.warn('Supabase fetch error:', error.message);
+        console.warn('[Sync] Supabase fetch error:', error.message);
       }
     } catch (e) {
-      console.warn('Supabase unreachable:', e);
+      console.warn('[Sync] Supabase unreachable:', e.message);
     }
+  } else {
+    console.warn('[Sync] Supabase NOT configured. Cross-device sync disabled. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.');
   }
 
-  // 3. Merge: remote wins for shared data, local wins for user's own content
+  // 3. Merge: remote wins (latest source of truth), local preserved for offline
   const combined = mergeMemories(localMemories, remoteMemories);
 
-  // 4. Update IndexedDB with fresh remote data in background
+  // 4. Cache remote data locally for offline access
   if (remoteMemories.length > 0) {
     saveBulkMemoriesDB(remoteMemories).catch(() => {});
   }
 
-  return combined;
+  return { memories: combined, isCloudConnected };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Save a new guest memory to Supabase AND IndexedDB
+// Save a new memory to BOTH Supabase (cloud) and IndexedDB (local cache)
 // ─────────────────────────────────────────────────────────────────────────────
 export async function saveMemoryOnline(newMemory) {
-  if (!newMemory || !newMemory.id) return;
+  if (!newMemory || !newMemory.id) return false;
 
-  // 1. Save to IndexedDB immediately (instant, offline-safe)
+  // 1. Save to IndexedDB immediately (offline-safe)
   await saveMemoryDB(newMemory);
 
-  // 2. Upsert to Supabase (cloud, cross-device)
+  // 2. Upload to Supabase (cross-device cloud storage)
   if (isSupabaseConfigured && supabase) {
     try {
       const row = memoryToRow(newMemory);
@@ -157,16 +176,22 @@ export async function saveMemoryOnline(newMemory) {
         .upsert(row, { onConflict: 'id' });
 
       if (error) {
-        console.warn('Supabase save error:', error.message);
+        console.warn('[Sync] Supabase save error:', error.message);
+        return false;
       }
+      console.log('[Sync] Memory saved to Supabase cloud:', newMemory.id);
+      return true;
     } catch (e) {
-      console.warn('Supabase save exception:', e);
+      console.warn('[Sync] Supabase save exception:', e.message);
+      return false;
     }
   }
+
+  return false; // Supabase not configured
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Toggle like/unlike — updates both IndexedDB and Supabase
+// Toggle like/unlike — updates IndexedDB and Supabase
 // ─────────────────────────────────────────────────────────────────────────────
 export async function toggleLikeOnline(memoryId, isLiked) {
   const deviceId = getDeviceId();
@@ -189,7 +214,6 @@ export async function toggleLikeOnline(memoryId, isLiked) {
 
     await saveMemoryDB(target);
 
-    // Sync to Supabase
     if (isSupabaseConfigured && supabase) {
       try {
         await supabase
@@ -199,15 +223,17 @@ export async function toggleLikeOnline(memoryId, isLiked) {
             likes_count: target.likesCount,
           })
           .eq('id', memoryId);
-      } catch (e) {}
+      } catch (e) {
+        console.warn('[Sync] Like toggle Supabase error:', e);
+      }
     }
   } catch (e) {
-    console.warn('Like toggle error:', e);
+    console.warn('[Sync] Like toggle error:', e);
   }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Delete a memory from Supabase
+// Delete a memory from Supabase and local IndexedDB
 // ─────────────────────────────────────────────────────────────────────────────
 export async function deleteMemoryOnline(memoryId) {
   await deleteMemoryDB(memoryId);
@@ -216,31 +242,41 @@ export async function deleteMemoryOnline(memoryId) {
     try {
       await supabase.from('memories').delete().eq('id', memoryId);
     } catch (e) {
-      console.warn('Supabase delete error:', e);
+      console.warn('[Sync] Supabase delete error:', e);
     }
   }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Subscribe to Supabase Realtime for instant cross-device updates
+// Supabase Realtime — instant push when ANY device inserts a new memory
 // ─────────────────────────────────────────────────────────────────────────────
 export function subscribeToMemories(onNewMemory) {
-  if (!isSupabaseConfigured || !supabase) return () => {};
+  if (!isSupabaseConfigured || !supabase) {
+    console.warn('[Realtime] Supabase not configured. Realtime sync unavailable.');
+    return () => {};
+  }
 
   const channel = supabase
-    .channel('memories-realtime')
+    .channel('public:memories')
     .on(
       'postgres_changes',
       { event: 'INSERT', schema: 'public', table: 'memories' },
       (payload) => {
         if (payload.new) {
           const mem = rowToMemory(payload.new);
+          console.log('[Realtime] New memory received from cloud:', mem.id);
           saveMemoryDB(mem).catch(() => {});
           onNewMemory(mem);
         }
       }
     )
-    .subscribe();
+    .subscribe((status) => {
+      if (status === 'SUBSCRIBED') {
+        console.log('[Realtime] Supabase realtime connected ✓');
+      } else {
+        console.warn('[Realtime] Supabase realtime status:', status);
+      }
+    });
 
   return () => supabase.removeChannel(channel);
 }
