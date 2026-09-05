@@ -22,6 +22,33 @@ export default function ExploreMemories({
     }
   }, [selectedMemory]);
 
+  // Keep selectedMemory synchronized with memories array (e.g. on like toggle) without losing photo
+  useEffect(() => {
+    if (selectedMemory) {
+      const latest = memories.find((m) => m.id === selectedMemory.id);
+      if (latest) {
+        setSelectedMemory((prev) => {
+          if (!prev) return null;
+          const strip = (latest.stripImage && latest.stripImage.length > 50 && latest.stripImage !== 'data:,')
+            ? latest.stripImage
+            : prev.stripImage;
+          const stripUrl = (latest.stripUrl && latest.stripUrl.length > 50 && latest.stripUrl !== 'data:,')
+            ? latest.stripUrl
+            : (prev.stripUrl || strip);
+          const audio = latest.audioUrl || prev.audioUrl;
+
+          return {
+            ...prev,
+            ...latest,
+            stripImage: strip,
+            stripUrl: stripUrl,
+            audioUrl: audio,
+          };
+        });
+      }
+    }
+  }, [memories]);
+
   const handlePlayVoice = (id, url, e) => {
     if (e) e.stopPropagation();
     if (activeAudioId === id) {

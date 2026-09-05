@@ -134,9 +134,33 @@ export default function App() {
         });
       },
       onUpdateMemory: (updatedMem) => {
+        if (!updatedMem || !updatedMem.id) return;
         console.log('[Realtime] Memory updated:', updatedMem.id);
         setMemories((prev) =>
-          prev.map((m) => (m.id === updatedMem.id ? { ...m, ...updatedMem } : m))
+          prev.map((m) => {
+            if (m.id !== updatedMem.id) return m;
+            // Never let like or realtime updates overwrite existing photo or voice note with null!
+            const newStrip = (updatedMem.stripImage && updatedMem.stripImage.length > 50 && updatedMem.stripImage !== 'data:,')
+              ? updatedMem.stripImage
+              : m.stripImage;
+            const newStripUrl = (updatedMem.stripUrl && updatedMem.stripUrl.length > 50 && updatedMem.stripUrl !== 'data:,')
+              ? updatedMem.stripUrl
+              : (m.stripUrl || newStrip);
+            const newAudio = (updatedMem.audioUrl && updatedMem.audioUrl.length > 20)
+              ? updatedMem.audioUrl
+              : m.audioUrl;
+
+            return {
+              ...m,
+              ...updatedMem,
+              stripImage: newStrip,
+              stripUrl: newStripUrl,
+              audioUrl: newAudio,
+              audioDuration: updatedMem.audioDuration || m.audioDuration || 0,
+              message: updatedMem.message || m.message || '',
+              guestMessage: updatedMem.guestMessage || m.guestMessage || '',
+            };
+          })
         );
       },
       onDeleteMemory: (deletedId) => {

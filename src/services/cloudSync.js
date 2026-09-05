@@ -234,8 +234,8 @@ export async function fetchOnlineMemories() {
 
   const combined = mergeMemories(localMemories, remoteMemories);
 
-  if (remoteMemories.length > 0) {
-    saveBulkMemoriesDB(remoteMemories).catch(() => {});
+  if (combined.length > 0) {
+    saveBulkMemoriesDB(combined).catch(() => {});
   }
 
   return { memories: combined, isCloudConnected, schemaError };
@@ -442,29 +442,60 @@ export function subscribeToMemories(callbacks = {}) {
             }
           } else if (payload.eventType === 'UPDATE' && payload.new) {
             let mem = rowToMemory(payload.new);
-            saveMemoryDB(mem).catch(() => {});
-            onUpdateMemory?.(mem);
 
-            if (!mem.stripImage && payload.new.id) {
-              const currentClient = getSupabaseClient();
-              if (currentClient) {
-                currentClient
-                  .from('memories')
-                  .select('*')
-                  .eq('id', payload.new.id)
-                  .single()
-                  .then(({ data: fullRow, error }) => {
-                    if (!error && fullRow) {
-                      const completeMem = rowToMemory(fullRow);
-                      if (completeMem.stripImage) {
-                        saveMemoryDB(completeMem).catch(() => {});
-                        onUpdateMemory?.(completeMem);
-                      }
-                    }
-                  })
-                  .catch(() => {});
+            // Supabase Realtime UPDATE events do NOT send unchanged TOAST columns (strip_image, audio_url).
+            // We must retrieve the existing memory from IndexedDB to preserve valid photos & audio!
+            getAllMemoriesDB().then((existingList) => {
+              const existing = Array.isArray(existingList) ? existingList.find((e) => e.id === mem.id) : null;
+              if (existing) {
+                if (!mem.stripImage && existing.stripImage) {
+                  mem.stripImage = existing.stripImage;
+                  mem.stripUrl = existing.stripUrl || existing.stripImage;
+                }
+                if (!mem.audioUrl && existing.audioUrl) {
+                  mem.audioUrl = existing.audioUrl;
+                  mem.audioDuration = existing.audioDuration || 0;
+                }
+                if (!mem.message && existing.message) {
+                  mem.message = existing.message;
+                  mem.guestMessage = existing.guestMessage || existing.message;
+                }
               }
-            }
+
+              // If stripImage is still missing, fetch full row from Supabase REST
+              if (!mem.stripImage && payload.new.id) {
+                const currentClient = getSupabaseClient();
+                if (currentClient) {
+                  currentClient
+                    .from('memories')
+                    .select('*')
+                    .eq('id', payload.new.id)
+                    .single()
+                    .then(({ data: fullRow, error }) => {
+                      if (!error && fullRow) {
+                        const completeMem = rowToMemory(fullRow);
+                        if (completeMem.stripImage) {
+                          mem.stripImage = completeMem.stripImage;
+                          mem.stripUrl = completeMem.stripUrl;
+                        }
+                      }
+                      saveMemoryDB(mem).catch(() => {});
+                      onUpdateMemory?.(mem);
+                    })
+                    .catch(() => {
+                      saveMemoryDB(mem).catch(() => {});
+                      onUpdateMemory?.(mem);
+                    });
+                  return;
+                }
+              }
+
+              saveMemoryDB(mem).catch(() => {});
+              onUpdateMemory?.(mem);
+            }).catch(() => {
+              saveMemoryDB(mem).catch(() => {});
+              onUpdateMemory?.(mem);
+            });
           } else if (payload.eventType === 'DELETE' && payload.old) {
             const id = String(payload.old.id);
             deleteMemoryDB(id).catch(() => {});
