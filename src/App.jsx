@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import GuestLanding from './components/GuestLanding';
 import AdminPanel from './components/AdminPanel';
 import ProjectorView from './components/ProjectorView';
@@ -169,7 +169,12 @@ export default function App() {
       console.warn('[App] Save to cloud issue:', result?.error);
       if (result?.code === 'PGRST204' || result?.error?.includes('guest_name')) {
         setCloudError('Kolom tabel memories di Supabase belum sesuai. Silakan jalankan SQL migrasi di SQL Editor Supabase.');
+      } else {
+        setCloudError(`Gagal upload ke cloud: ${result?.error || 'Koneksi bermasalah'}. Foto hanya tersimpan di HP ini.`);
       }
+    } else if (result?.warning) {
+      console.info('[App] Save warning:', result.warning);
+      setCloudError(result.warning);
     }
     return result;
   };
@@ -206,14 +211,22 @@ export default function App() {
   return (
     <div className="w-full min-h-screen bg-[#faf8f5]">
       {cloudError && (
-        <div className="fixed top-0 inset-x-0 z-50 bg-amber-500 text-white text-xs font-semibold px-4 py-2 text-center shadow-md flex items-center justify-between">
-          <span>⚠️ {cloudError}</span>
-          <button
-            onClick={() => setCloudError(null)}
-            className="ml-2 underline font-bold"
-          >
-            Tutup
-          </button>
+        <div className="fixed top-0 inset-x-0 z-50 bg-amber-600 text-white text-xs font-semibold px-4 py-2.5 text-center shadow-md flex items-center justify-between gap-3">
+          <span className="truncate">⚠️ {cloudError}</span>
+          <div className="flex items-center gap-2.5 flex-shrink-0">
+            <button
+              onClick={() => navigateTo('admin')}
+              className="bg-white/20 hover:bg-white/30 px-2.5 py-1 rounded-lg text-white font-bold text-[11px] transition-colors"
+            >
+              Buka Admin
+            </button>
+            <button
+              onClick={() => setCloudError(null)}
+              className="underline font-bold text-white/90 hover:text-white"
+            >
+              Tutup
+            </button>
+          </div>
         </div>
       )}
 

@@ -95,9 +95,19 @@ export default function GuestLanding({
       {/* Floating Top Nav / Control Badges */}
       <header className="fixed top-3 inset-x-3 sm:inset-x-6 z-40 flex items-center justify-between pointer-events-none">
         {/* Realtime Live Indicator */}
-        <div className="pointer-events-auto flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-black/45 backdrop-blur-md text-[#F6F4EE] text-[11px] font-medium shadow-md">
-          <span className={`w-2 h-2 rounded-full ${isConnected ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400 animate-pulse'}`}></span>
-          <span className="opacity-90">{isConnected ? 'Cloud Sync ✓' : 'Menghubungkan...'}</span>
+        <div
+          onClick={() => {
+            if (!isConnected) {
+              onOpenAdmin?.();
+            }
+          }}
+          className={`pointer-events-auto flex items-center gap-1.5 px-3 py-1.5 rounded-full backdrop-blur-md text-[#F6F4EE] text-[11px] font-medium shadow-md transition-all ${
+            !isConnected ? 'cursor-pointer hover:bg-black/60' : ''
+          } bg-black/45`}
+          title={isConnected ? 'Tersinkronisasi otomatis ke semua perangkat' : 'Klik untuk buka Admin & hubungkan database Cloud'}
+        >
+          <span className={`w-2 h-2 rounded-full ${isConnected ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`}></span>
+          <span className="opacity-90">{isConnected ? 'Cloud Sync Aktif ✓' : 'Cloud Belum Aktif (Lokal)'}</span>
         </div>
 
         {/* Quick Actions (Replay Polaroid Intro, BGM, Projector Screen, Admin) */}

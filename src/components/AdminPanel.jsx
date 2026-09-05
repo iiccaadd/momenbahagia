@@ -23,11 +23,91 @@ import {
   Plus,
   X,
   SlidersHorizontal,
-  Check
+  Check,
+  Database,
+  Cloud,
+  RefreshCw,
+  Copy,
+  ExternalLink,
+  ShieldCheck,
+  AlertTriangle,
+  Key,
+  Link as LinkIcon,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
+import QRCode from 'qrcode';
 import { renderPhotostrip } from '../utils/canvasExport';
 import { useNotify } from '../context/NotificationContext';
+import {
+  getSupabaseCredentials,
+  saveSupabaseCredentials,
+  clearCustomSupabaseCredentials,
+  testSupabaseConnection,
+} from '../services/supabaseClient';
+
+const SUPABASE_SCHEMA_SQL = `-- ==============================================================================
+-- 1. Buat Tabel memories jika belum ada
+-- ==============================================================================
+CREATE TABLE IF NOT EXISTS public.memories (
+  id TEXT PRIMARY KEY,
+  guest_name TEXT NOT NULL DEFAULT 'Tamu Spesial',
+  message TEXT DEFAULT '',
+  strip_image TEXT,
+  strip_url TEXT,
+  audio_url TEXT,
+  audio_duration INTEGER DEFAULT 0,
+  gallery_photos JSONB DEFAULT '[]'::jsonb,
+  liked_ips JSONB DEFAULT '[]'::jsonb,
+  likes_count INTEGER DEFAULT 0,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  template_id TEXT DEFAULT 'classic',
+  frame_color TEXT,
+  sticker_overlay TEXT,
+  filter_name TEXT,
+  is_pinned BOOLEAN DEFAULT false
+);
+
+-- 2. Pastikan kolom audio & strip tersedia jika tabel sudah pernah dibuat sebelumnya
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='memories' AND column_name='audio_url') THEN
+    ALTER TABLE public.memories ADD COLUMN audio_url TEXT;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='memories' AND column_name='audio_duration') THEN
+    ALTER TABLE public.memories ADD COLUMN audio_duration INTEGER DEFAULT 0;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='memories' AND column_name='strip_url') THEN
+    ALTER TABLE public.memories ADD COLUMN strip_url TEXT;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='memories' AND column_name='strip_image') THEN
+    ALTER TABLE public.memories ADD COLUMN strip_image TEXT;
+  END IF;
+END $$;
+
+-- 3. Aktifkan Row Level Security (RLS) & Berikan Izin Akses Publik
+ALTER TABLE public.memories ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Allow public read access" ON public.memories;
+DROP POLICY IF EXISTS "Allow public insert access" ON public.memories;
+DROP POLICY IF EXISTS "Allow public update access" ON public.memories;
+DROP POLICY IF EXISTS "Allow public delete access" ON public.memories;
+
+CREATE POLICY "Allow public read access" ON public.memories FOR SELECT USING (true);
+CREATE POLICY "Allow public insert access" ON public.memories FOR INSERT WITH CHECK (true);
+CREATE POLICY "Allow public update access" ON public.memories FOR UPDATE USING (true);
+CREATE POLICY "Allow public delete access" ON public.memories FOR DELETE USING (true);
+
+-- 4. Aktifkan Supabase Realtime untuk sinkronisasi antar HP tanpa refresh
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables 
+    WHERE pubname = 'supabase_realtime' AND tablename = 'memories'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.memories;
+  END IF;
+EXCEPTION WHEN OTHERS THEN NULL;
+END $$;`;
+
 
 export default function AdminPanel({
   weddingSettings,
@@ -59,6 +139,19 @@ export default function AdminPanel({
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [qrCodeUrl, setQrCodeUrl] = useState('');
   const [activeAudioId, setActiveAudioId] = useState(null);
+
+  // Cloud Sync Configuration State
+  const initialCreds = getSupabaseCredentials();
+  const [cloudUrl, setCloudUrl] = useState(initialCreds.url || '');
+  const [cloudKey, setCloudKey] = useState(initialCreds.key || '');
+  const [cloudStatus, setCloudStatus] = useState(initialCreds);
+  const [isTestingCloud, setIsTestingCloud] = useState(false);
+  const [testResult, setTestResult] = useState(null);
+  const [cloudSaveMsg, setCloudSaveMsg] = useState('');
+  const [copiedSql, setCopiedSql] = useState(false);
+  const [copiedGuestLink, setCopiedGuestLink] = useState(false);
+  const [includeCloudInQr, setIncludeCloudInQr] = useState(true);
+  const [guestLinkUrl, setGuestLinkUrl] = useState('');
   
   // Custom Template Modal State
   const [isTemplateModalOpen, setIsTemplateModalOpen] = useState(false);
@@ -106,15 +199,43 @@ export default function AdminPanel({
     }
   }, [weddingSettings]);
 
-  // Fetch QR Code
+  // Generate QR Code langsung di client (berfungsi optimal di Vercel & offline)
   useEffect(() => {
-    fetch('/api/qrcode')
-      .then((r) => r.json())
-      .then((data) => {
-        if (data.qrCode) setQrCodeUrl(data.qrCode);
-      })
-      .catch(console.error);
-  }, []);
+    const generateQr = async () => {
+      try {
+        let origin = typeof window !== 'undefined' ? window.location.origin : '';
+        if (typeof window !== 'undefined' && window.location.pathname && window.location.pathname !== '/') {
+          origin += window.location.pathname;
+        }
+
+        const creds = getSupabaseCredentials();
+        let targetUrl = origin;
+
+        if (includeCloudInQr && creds.isConfigured && creds.source === 'local') {
+          const params = new URLSearchParams();
+          params.set('sb_url', creds.url);
+          params.set('sb_key', creds.key);
+          targetUrl = `${origin}?${params.toString()}`;
+        }
+
+        setGuestLinkUrl(targetUrl);
+
+        const qrData = await QRCode.toDataURL(targetUrl, {
+          width: 500,
+          margin: 2,
+          color: {
+            dark: '#231123',
+            light: '#faf8f5',
+          },
+        });
+        setQrCodeUrl(qrData);
+      } catch (e) {
+        console.error('Error generating QR code:', e);
+      }
+    };
+
+    generateQr();
+  }, [includeCloudInQr, cloudStatus.url, cloudStatus.key]);
 
   // Update Live Preview Canvas for Custom Template
   useEffect(() => {
@@ -342,6 +463,65 @@ export default function AdminPanel({
     }
   };
 
+  const handleTestConnection = async () => {
+    setIsTestingCloud(true);
+    setTestResult(null);
+    try {
+      const res = await testSupabaseConnection(cloudUrl, cloudKey);
+      setTestResult(res);
+      if (res.success) {
+        notify.success('Koneksi ke Supabase berhasil! Tabel "memories" aktif.');
+      } else {
+        notify.error(res.error || 'Gagal terhubung ke Supabase');
+      }
+    } catch (e) {
+      setTestResult({ success: false, error: e.message });
+      notify.error(e.message);
+    } finally {
+      setIsTestingCloud(false);
+    }
+  };
+
+  const handleSaveCloudConfig = (e) => {
+    e?.preventDefault();
+    const success = saveSupabaseCredentials(cloudUrl, cloudKey);
+    if (success) {
+      setCloudStatus(getSupabaseCredentials());
+      setCloudSaveMsg('Pengaturan Cloud berhasil disimpan dan diterapkan!');
+      notify.success('Pengaturan Cloud Supabase berhasil disimpan!');
+      setTimeout(() => setCloudSaveMsg(''), 4000);
+    } else {
+      notify.error('Mohon isi URL dan Anon Key dengan benar.');
+    }
+  };
+
+  const handleResetCloudConfig = () => {
+    clearCustomSupabaseCredentials();
+    const fresh = getSupabaseCredentials();
+    setCloudUrl(fresh.url);
+    setCloudKey(fresh.key);
+    setCloudStatus(fresh);
+    setTestResult(null);
+    setCloudSaveMsg('Kredensial kustom direset ke default.');
+    notify.info('Kredensial kustom telah dihapus.');
+    setTimeout(() => setCloudSaveMsg(''), 3000);
+  };
+
+  const handleCopySql = () => {
+    navigator.clipboard.writeText(SUPABASE_SCHEMA_SQL);
+    setCopiedSql(true);
+    notify.success('Script SQL berhasil disalin ke clipboard!');
+    setTimeout(() => setCopiedSql(false), 2500);
+  };
+
+  const handleCopyGuestLink = () => {
+    if (!guestLinkUrl) return;
+    navigator.clipboard.writeText(guestLinkUrl);
+    setCopiedGuestLink(true);
+    notify.success('Link Tamu berhasil disalin!');
+    setTimeout(() => setCopiedGuestLink(false), 2500);
+  };
+
   return (
     <div className="min-h-screen bg-[#faf8f5] text-[#2c2a29] flex flex-col">
       <audio
@@ -367,8 +547,12 @@ export default function AdminPanel({
                 <h1 className="font-serif-elegant font-bold text-lg text-[#3a2c1f]">
                   Admin & Realtime Control Panel
                 </h1>
-                <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold">
-                  ● Realtime Sync Active
+                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                  cloudStatus.isConfigured
+                    ? 'bg-emerald-100 text-emerald-800'
+                    : 'bg-amber-100 text-amber-800'
+                }`}>
+                  {cloudStatus.isConfigured ? '● Cloud Sync Aktif' : '○ Cloud Belum Terhubung'}
                 </span>
               </div>
               <p className="text-xs text-[#7a6b5d]">
@@ -401,6 +585,7 @@ export default function AdminPanel({
             { id: 'settings', label: 'Pengaturan Pernikahan', icon: Settings },
             { id: 'memories', label: `Moderasi Kenangan (${memories.length})`, icon: Users },
             { id: 'templates', label: `Template Photobooth (${templates.length})`, icon: Sliders },
+            { id: 'cloud', label: 'Cloud Sync (Supabase)', icon: Database },
             { id: 'qrcode', label: 'QR Code Meja / Venue', icon: QrCode },
           ].map((tab) => {
             const Icon = tab.icon;
@@ -885,14 +1070,245 @@ export default function AdminPanel({
           </div>
         )}
 
-        {/* TAB 4: QR CODE STAND */}
+        {/* TAB 4: CLOUD SYNC & DATABASE (SUPABASE) */}
+        {activeTab === 'cloud' && (
+          <div className="max-w-4xl mx-auto space-y-6">
+            {/* Status Card */}
+            <div className={`p-6 rounded-3xl border shadow-sm transition-all ${
+              cloudStatus.isConfigured
+                ? 'bg-white border-emerald-200'
+                : 'bg-amber-50/70 border-amber-200'
+            }`}>
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                <div className="flex items-center gap-3.5">
+                  <div className={`w-12 h-12 rounded-2xl flex items-center justify-center ${
+                    cloudStatus.isConfigured
+                      ? 'bg-emerald-100 text-emerald-700'
+                      : 'bg-amber-100 text-amber-700'
+                  }`}>
+                    <Database className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h3 className="font-serif-elegant font-bold text-base text-[#3a2c1f]">
+                        Supabase Cloud Database & Realtime
+                      </h3>
+                      <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${
+                        cloudStatus.isConfigured
+                          ? 'bg-emerald-100 text-emerald-800'
+                          : 'bg-amber-100 text-amber-800'
+                      }`}>
+                        {cloudStatus.isConfigured ? 'Terhubung ✓' : 'Belum Terhubung'}
+                      </span>
+                    </div>
+                    <p className="text-xs text-[#7a6b5d] mt-0.5">
+                      {cloudStatus.isConfigured
+                        ? `Sumber Kredensial: ${cloudStatus.source === 'env' ? 'Environment Variables (Vercel/Vite)' : 'Pengaturan Browser Admin'}`
+                        : 'Foto tamu saat ini hanya tersimpan di memori browser HP masing-masing.'}
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleTestConnection}
+                  disabled={isTestingCloud}
+                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white border border-[#e8dfd5] hover:bg-[#faf8f5] text-xs font-semibold text-[#5e4b3c] shadow-sm transition-all active:scale-95"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isTestingCloud ? 'animate-spin' : ''}`} />
+                  {isTestingCloud ? 'Menguji...' : 'Tes Koneksi'}
+                </button>
+              </div>
+
+              {/* Test Result Alert */}
+              {testResult && (
+                <div className={`mt-4 p-4 rounded-2xl border text-xs leading-relaxed animate-fadeIn ${
+                  testResult.success
+                    ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
+                    : 'bg-rose-50 border-rose-200 text-rose-900'
+                }`}>
+                  <div className="flex items-start gap-2.5">
+                    {testResult.success ? (
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 mt-0.5 flex-shrink-0" />
+                    ) : (
+                      <AlertTriangle className="w-4 h-4 text-rose-600 mt-0.5 flex-shrink-0" />
+                    )}
+                    <div>
+                      <p className="font-bold">{testResult.success ? testResult.message : testResult.error}</p>
+                      {testResult.hint && (
+                        <p className="mt-1 text-rose-700 font-medium opacity-90">{testResult.hint}</p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Form Kredensial Supabase */}
+            <div className="bg-white rounded-3xl p-6 border border-[#e8dfd5] shadow-sm space-y-5">
+              <div className="flex items-center justify-between border-b border-[#f1ede8] pb-3">
+                <h4 className="font-serif-elegant font-bold text-base text-[#3a2c1f] flex items-center gap-2">
+                  <Key className="w-4 h-4 text-[#c5a880]" />
+                  Konfigurasi Kredensial Supabase
+                </h4>
+                {cloudStatus.source === 'local' && (
+                  <button
+                    type="button"
+                    onClick={handleResetCloudConfig}
+                    className="text-xs text-rose-600 hover:underline font-semibold"
+                  >
+                    Reset Kredensial Kustom
+                  </button>
+                )}
+              </div>
+
+              {cloudSaveMsg && (
+                <div className="p-3.5 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-semibold flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                  {cloudSaveMsg}
+                </div>
+              )}
+
+              <form onSubmit={handleSaveCloudConfig} className="space-y-4">
+                <div>
+                  <label className="text-xs font-semibold text-[#7a6b5d] block mb-1">
+                    Supabase Project URL
+                  </label>
+                  <input
+                    type="url"
+                    placeholder="https://your-project-id.supabase.co"
+                    value={cloudUrl}
+                    onChange={(e) => setCloudUrl(e.target.value)}
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-[#e8dfd5] text-xs sm:text-sm font-mono focus:ring-2 focus:ring-[#c5a880] focus:outline-none"
+                    required
+                  />
+                  <span className="text-[11px] text-[#8c7b6d] mt-1 block">
+                    Dapatkan dari Dashboard Supabase → Project Settings → Configuration → API → Project URL.
+                  </span>
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-[#7a6b5d] block mb-1">
+                    Supabase Anon Public API Key
+                  </label>
+                  <textarea
+                    rows={2}
+                    placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+                    value={cloudKey}
+                    onChange={(e) => setCloudKey(e.target.value)}
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-[#e8dfd5] text-xs font-mono focus:ring-2 focus:ring-[#c5a880] focus:outline-none resize-none"
+                    required
+                  />
+                  <span className="text-[11px] text-[#8c7b6d] mt-1 block">
+                    Dapatkan dari Dashboard Supabase → Project Settings → Configuration → API → Project API Keys (anon public).
+                  </span>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-3 pt-2">
+                  <button
+                    type="submit"
+                    className="px-6 py-2.5 rounded-xl bg-[#c5a880] hover:bg-[#a8895b] text-white font-bold text-xs shadow-md transition-all flex items-center gap-2"
+                  >
+                    <Save className="w-4 h-4" /> Simpan Pengaturan Cloud
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleTestConnection}
+                    disabled={isTestingCloud}
+                    className="px-4 py-2.5 rounded-xl bg-[#f4ede4] hover:bg-[#e8dfd5] text-[#5e4b3c] font-semibold text-xs transition-all flex items-center gap-1.5"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${isTestingCloud ? 'animate-spin' : ''}`} />
+                    Tes Koneksi
+                  </button>
+                </div>
+              </form>
+            </div>
+
+            {/* SQL Schema Copy Section */}
+            <div className="bg-white rounded-3xl p-6 border border-[#e8dfd5] shadow-sm space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#f1ede8] pb-3">
+                <div>
+                  <h4 className="font-serif-elegant font-bold text-base text-[#3a2c1f] flex items-center gap-2">
+                    <Database className="w-4 h-4 text-[#c5a880]" />
+                    Script SQL Skema Database Supabase
+                  </h4>
+                  <p className="text-xs text-[#7a6b5d] mt-0.5">
+                    Jalankan script ini di menu SQL Editor Supabase untuk membuat tabel dan mengaktifkan izin publik.
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <a
+                    href="https://supabase.com/dashboard"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#f4ede4] hover:bg-[#e8dfd5] text-[#5e4b3c] text-xs font-semibold transition-colors"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" /> Buka Supabase
+                  </a>
+                  <button
+                    type="button"
+                    onClick={handleCopySql}
+                    className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#3a2c1f] hover:bg-[#231123] text-white text-xs font-bold shadow-sm transition-all"
+                  >
+                    {copiedSql ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                    {copiedSql ? 'Tersalin!' : 'Salin Script SQL'}
+                  </button>
+                </div>
+              </div>
+
+              <div className="relative">
+                <textarea
+                  readOnly
+                  value={SUPABASE_SCHEMA_SQL}
+                  rows={8}
+                  className="w-full p-4 rounded-2xl bg-[#1e1e24] text-[#d4d4d8] font-mono text-[11px] leading-relaxed border border-[#3f3f46] focus:outline-none resize-y selection:bg-[#c5a880] selection:text-black"
+                />
+              </div>
+            </div>
+
+            {/* Panduan Praktis 3 Menit */}
+            <div className="bg-[#faf8f5] rounded-3xl p-6 border border-[#e8dfd5] space-y-4">
+              <h4 className="font-serif-elegant font-bold text-base text-[#3a2c1f] flex items-center gap-2">
+                <ShieldCheck className="w-5 h-5 text-[#c5a880]" />
+                Panduan Cepat 3 Menit Setup Cloud Sync
+              </h4>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs text-[#5e4b3c]">
+                <div className="bg-white p-4 rounded-2xl border border-[#e8dfd5] space-y-2">
+                  <span className="w-6 h-6 rounded-full bg-[#c5a880] text-white font-bold flex items-center justify-center text-xs">1</span>
+                  <h5 className="font-bold text-[#3a2c1f]">Buat Project Supabase</h5>
+                  <p className="text-[11px] text-[#7a6b5d] leading-relaxed">
+                    Daftar gratis di <a href="https://supabase.com" target="_blank" rel="noreferrer" className="text-[#a8895b] font-bold underline">supabase.com</a> dan buat project baru (pilih region terdekat seperti Singapore).
+                  </p>
+                </div>
+                <div className="bg-white p-4 rounded-2xl border border-[#e8dfd5] space-y-2">
+                  <span className="w-6 h-6 rounded-full bg-[#c5a880] text-white font-bold flex items-center justify-center text-xs">2</span>
+                  <h5 className="font-bold text-[#3a2c1f]">Jalankan Script SQL</h5>
+                  <p className="text-[11px] text-[#7a6b5d] leading-relaxed">
+                    Klik menu <strong>SQL Editor</strong> di dashboard Supabase, klik <em>New Query</em>, tempelkan script SQL di atas lalu klik tombol <strong>Run</strong>.
+                  </p>
+                </div>
+                <div className="bg-white p-4 rounded-2xl border border-[#e8dfd5] space-y-2">
+                  <span className="w-6 h-6 rounded-full bg-[#c5a880] text-white font-bold flex items-center justify-center text-xs">3</span>
+                  <h5 className="font-bold text-[#3a2c1f]">Masukkan Kredensial</h5>
+                  <p className="text-[11px] text-[#7a6b5d] leading-relaxed">
+                    Buka <strong>Project Settings → API</strong>, salin URL & Anon Key, lalu tempelkan ke form di atas atau masukkan ke Environment Variables Vercel!
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* TAB 5: QR CODE STAND */}
         {activeTab === 'qrcode' && (
-          <div className="bg-white rounded-3xl p-8 border border-[#e8dfd5] shadow-sm max-w-md mx-auto text-center space-y-4">
+          <div className="bg-white rounded-3xl p-8 border border-[#e8dfd5] shadow-sm max-w-lg mx-auto text-center space-y-5">
             <h3 className="font-serif-elegant font-bold text-xl text-[#3a2c1f]">
               QR Code Stand Meja Resepsi
             </h3>
             <p className="text-xs text-[#7a6b5d]">
-              Cetak dan letakkan QR code ini di meja tamu atau standing banner agar tamu bisa langsung scan dan upload foto kenangan!
+              Cetak dan letakkan QR code ini di meja tamu atau standing banner agar tamu bisa langsung scan dengan kamera HP dan upload foto kenangan secara realtime!
             </p>
 
             {qrCodeUrl ? (
@@ -911,6 +1327,45 @@ export default function AdminPanel({
 
             <div className="font-script text-2xl text-[#c5a880]">
               {formData.displayNames}
+            </div>
+
+            {/* Smart Cloud Pairing Toggle */}
+            {cloudStatus.isConfigured && cloudStatus.source === 'local' && (
+              <div className="p-3.5 bg-amber-50 rounded-2xl border border-amber-200 text-left flex items-start gap-2.5">
+                <input
+                  type="checkbox"
+                  id="includeCloudInQr"
+                  checked={includeCloudInQr}
+                  onChange={(e) => setIncludeCloudInQr(e.target.checked)}
+                  className="mt-0.5 rounded text-[#c5a880] focus:ring-[#c5a880]"
+                />
+                <label htmlFor="includeCloudInQr" className="text-[11px] text-[#5e4b3c] leading-tight cursor-pointer">
+                  <strong>Sertakan Kunci Cloud di QR Code & Link</strong>: HP tamu yang memindai QR code ini akan otomatis tersambung ke database Supabase Anda tanpa konfigurasi manual!
+                </label>
+              </div>
+            )}
+
+            {/* Guest Link URL Copy */}
+            <div className="p-3.5 bg-[#faf8f5] rounded-2xl border border-[#e8dfd5] text-left space-y-1.5">
+              <label className="text-[11px] font-bold text-[#7a6b5d] uppercase tracking-wider block">
+                Link Langsung Halaman Tamu:
+              </label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  readOnly
+                  value={guestLinkUrl || (typeof window !== 'undefined' ? window.location.origin : '')}
+                  className="w-full px-3 py-2 bg-white rounded-xl border border-[#e8dfd5] text-xs font-mono text-[#5e4b3c] truncate focus:outline-none"
+                />
+                <button
+                  type="button"
+                  onClick={handleCopyGuestLink}
+                  className="flex items-center gap-1 px-3.5 py-2 rounded-xl bg-[#3a2c1f] hover:bg-[#231123] text-white text-xs font-bold whitespace-nowrap shadow-sm transition-all"
+                >
+                  {copiedGuestLink ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                  {copiedGuestLink ? 'Tersalin' : 'Salin'}
+                </button>
+              </div>
             </div>
 
             <button

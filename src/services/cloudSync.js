@@ -6,7 +6,12 @@ import {
   deleteMemoryDB,
   onMemoryBroadcast
 } from './dbStorage';
-import { supabase, isSupabaseConfigured } from './supabaseClient';
+import {
+  supabase,
+  isSupabaseConfigured,
+  getSupabaseClient,
+  getSupabaseCredentials
+} from './supabaseClient';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Device ID (used for per-device like tracking)
@@ -178,9 +183,12 @@ export async function fetchOnlineMemories() {
   let isCloudConnected = false;
   let schemaError = null;
 
-  if (isSupabaseConfigured && supabase) {
+  const client = getSupabaseClient();
+  const creds = getSupabaseCredentials();
+
+  if (creds.isConfigured && client) {
     try {
-      const { data, error } = await supabase
+      const { data, error } = await client
         .from('memories')
         .select('*')
         .order('created_at', { ascending: false })
@@ -191,8 +199,8 @@ export async function fetchOnlineMemories() {
         isCloudConnected = true;
       } else if (error) {
         console.warn('[Sync] Supabase fetch error:', error.message);
-        if (error.code === 'PGRST204' || error.message?.includes('guest_name')) {
-          schemaError = 'Kolom tabel memories di Supabase belum sesuai. Silakan jalankan SQL migrasi di SQL Editor Supabase.';
+        if (error.code === 'PGRST204' || error.message?.includes('guest_name') || error.code === '42P01') {
+          schemaError = 'Tabel memories di Supabase belum sesuai atau belum dibuat. Silakan jalankan script supabase_schema.sql di SQL Editor Supabase.';
           console.error('[Sync CRITICAL SCHEMA ERROR]', schemaError);
         }
       }
@@ -256,11 +264,14 @@ export async function saveMemoryOnline(newMemory) {
   }
 
   // 3. Upload to Supabase (cross-device cloud storage)
-  if (isSupabaseConfigured && supabase) {
+  const client = getSupabaseClient();
+  const creds = getSupabaseCredentials();
+
+  if (creds.isConfigured && client) {
     try {
       const row = memoryToRow(newMemory);
 
-      const { data, error } = await supabase
+      const { data, error } = await client
         .from('memories')
         .insert(row)
         .select();
@@ -268,31 +279,35 @@ export async function saveMemoryOnline(newMemory) {
       if (error) {
         // If conflict error (duplicate key), try update
         if (error.code === '23505') {
-          const { error: updateErr } = await supabase
+          const { error: updateErr } = await client
             .from('memories')
             .update(row)
             .eq('id', row.id);
 
           if (updateErr) {
             console.error('[Sync] Supabase update error:', updateErr);
-            return { success: false, error: updateErr.message, code: updateErr.code };
+            return { success: false, isCloudSaved: false, error: updateErr.message, code: updateErr.code };
           }
-          return { success: true };
+          return { success: true, isCloudSaved: true };
         }
 
         console.error('[Sync] Supabase insert error:', error);
-        return { success: false, error: error.message, code: error.code };
+        return { success: false, isCloudSaved: false, error: error.message, code: error.code };
       }
 
       console.log('[Sync] Memory saved to Supabase cloud successfully:', row.id);
-      return { success: true };
+      return { success: true, isCloudSaved: true };
     } catch (e) {
       console.error('[Sync] Supabase save exception:', e);
-      return { success: false, error: e.message };
+      return { success: false, isCloudSaved: false, error: e.message };
     }
   }
 
-  return { success: true };
+  return {
+    success: true,
+    isCloudSaved: false,
+    warning: 'Foto tersimpan secara lokal di perangkat ini. Hubungkan database Supabase di Admin Panel agar foto otomatis tersinkronisasi ke seluruh HP tamu.'
+  };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -319,9 +334,12 @@ export async function toggleLikeOnline(memoryId, isLiked) {
 
     await saveMemoryDB(target);
 
-    if (isSupabaseConfigured && supabase) {
+    const client = getSupabaseClient();
+    const creds = getSupabaseCredentials();
+
+    if (creds.isConfigured && client) {
       try {
-        await supabase
+        await client
           .from('memories')
           .update({
             liked_ips: target.likedIps,
@@ -343,9 +361,12 @@ export async function toggleLikeOnline(memoryId, isLiked) {
 export async function deleteMemoryOnline(memoryId) {
   await deleteMemoryDB(memoryId);
 
-  if (isSupabaseConfigured && supabase) {
+  const client = getSupabaseClient();
+  const creds = getSupabaseCredentials();
+
+  if (creds.isConfigured && client) {
     try {
-      await supabase.from('memories').delete().eq('id', memoryId);
+      await client.from('memories').delete().eq('id', memoryId);
     } catch (e) {
       console.warn('[Sync] Supabase delete error:', e);
     }
@@ -356,48 +377,78 @@ export async function deleteMemoryOnline(memoryId) {
 // Supabase Realtime — instant multi-device sync
 // ─────────────────────────────────────────────────────────────────────────────
 export function subscribeToMemories(callbacks = {}) {
-  if (!isSupabaseConfigured || !supabase) {
-    console.warn('[Realtime] Supabase not configured. Realtime sync unavailable.');
-    return () => {};
-  }
+  let activeChannel = null;
 
   const { onNewMemory, onUpdateMemory, onDeleteMemory } = typeof callbacks === 'function'
     ? { onNewMemory: callbacks }
     : callbacks;
 
-  const channel = supabase
-    .channel('public-memories-realtime')
-    .on(
-      'postgres_changes',
-      { event: '*', schema: 'public', table: 'memories' },
-      (payload) => {
-        console.log('[Realtime event]', payload.eventType, payload.new?.id || payload.old?.id);
+  const connectRealtime = () => {
+    const client = getSupabaseClient();
+    const creds = getSupabaseCredentials();
 
-        if (payload.eventType === 'INSERT' && payload.new) {
-          const mem = rowToMemory(payload.new);
-          saveMemoryDB(mem).catch(() => {});
-          onNewMemory?.(mem);
-        } else if (payload.eventType === 'UPDATE' && payload.new) {
-          const mem = rowToMemory(payload.new);
-          saveMemoryDB(mem).catch(() => {});
-          onUpdateMemory?.(mem);
-        } else if (payload.eventType === 'DELETE' && payload.old) {
-          const id = String(payload.old.id);
-          deleteMemoryDB(id).catch(() => {});
-          onDeleteMemory?.(id);
+    if (!creds.isConfigured || !client) {
+      console.warn('[Realtime] Supabase belum dikonfigurasi. Menunggu konfigurasi cloud.');
+      return;
+    }
+
+    if (activeChannel) {
+      try { client.removeChannel(activeChannel); } catch (e) {}
+      activeChannel = null;
+    }
+
+    activeChannel = client
+      .channel('public-memories-realtime')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'memories' },
+        (payload) => {
+          console.log('[Realtime event]', payload.eventType, payload.new?.id || payload.old?.id);
+
+          if (payload.eventType === 'INSERT' && payload.new) {
+            const mem = rowToMemory(payload.new);
+            saveMemoryDB(mem).catch(() => {});
+            onNewMemory?.(mem);
+          } else if (payload.eventType === 'UPDATE' && payload.new) {
+            const mem = rowToMemory(payload.new);
+            saveMemoryDB(mem).catch(() => {});
+            onUpdateMemory?.(mem);
+          } else if (payload.eventType === 'DELETE' && payload.old) {
+            const id = String(payload.old.id);
+            deleteMemoryDB(id).catch(() => {});
+            onDeleteMemory?.(id);
+          }
         }
-      }
-    )
-    .subscribe((status) => {
-      if (status === 'SUBSCRIBED') {
-        console.log('[Realtime] Connected to Supabase real-time channel ✓');
-      } else {
-        console.warn('[Realtime] Status change:', status);
-      }
-    });
+      )
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          console.log('[Realtime] Connected to Supabase real-time channel ✓');
+        } else {
+          console.warn('[Realtime] Status change:', status);
+        }
+      });
+  };
+
+  connectRealtime();
+
+  // Dengar perubahan kredensial jika user menyimpan di Admin Panel
+  const onConfigChanged = () => {
+    console.log('[Realtime] Supabase config changed, reconnecting...');
+    connectRealtime();
+  };
+
+  if (typeof window !== 'undefined') {
+    window.addEventListener('wedding-cloud-sync-changed', onConfigChanged);
+  }
 
   return () => {
-    supabase.removeChannel(channel);
+    const client = getSupabaseClient();
+    if (activeChannel && client) {
+      client.removeChannel(activeChannel);
+    }
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('wedding-cloud-sync-changed', onConfigChanged);
+    }
   };
 }
 
