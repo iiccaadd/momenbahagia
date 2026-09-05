@@ -28,6 +28,7 @@ import {
   Cloud,
   RefreshCw,
   Copy,
+  LogOut,
   ExternalLink,
   ShieldCheck,
   AlertTriangle,
@@ -122,6 +123,7 @@ export default function AdminPanel({
   onUpdateTemplates,
   onDeleteMemory,
   onPinMemory,
+  onLogout,
 }) {
   const notify = useNotify();
   const [activeTab, setActiveTab] = useState('settings'); // 'settings', 'memories', 'templates', 'qrcode'
@@ -579,6 +581,16 @@ export default function AdminPanel({
             >
               <Eye className="w-4 h-4" /> Lihat Halaman Tamu
             </button>
+            {onLogout && (
+              <button
+                type="button"
+                onClick={onLogout}
+                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-rose-700 hover:bg-rose-800 text-white text-xs font-semibold shadow transition-all"
+                title="Keluar dari sesi Admin"
+              >
+                <LogOut className="w-4 h-4" /> Keluar
+              </button>
+            )}
           </div>
         </div>
 

@@ -94,23 +94,13 @@ export default function GuestLanding({
 
       {/* Floating Top Nav / Control Badges */}
       <header className="fixed top-3 inset-x-3 sm:inset-x-6 z-40 flex items-center justify-between pointer-events-none">
-        {/* Realtime Live Indicator */}
-        <div
-          onClick={() => {
-            if (!isConnected) {
-              onOpenAdmin?.();
-            }
-          }}
-          className={`pointer-events-auto flex items-center gap-1.5 px-3 py-1.5 rounded-full backdrop-blur-md text-[#F6F4EE] text-[11px] font-medium shadow-md transition-all ${
-            !isConnected ? 'cursor-pointer hover:bg-black/60' : ''
-          } bg-black/45`}
-          title={isConnected ? 'Tersinkronisasi otomatis ke semua perangkat' : 'Klik untuk buka Admin & hubungkan database Cloud'}
-        >
-          <span className={`w-2 h-2 rounded-full ${isConnected ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`}></span>
-          <span className="opacity-90">{isConnected ? 'Cloud Sync Aktif ✓' : 'Cloud Belum Aktif (Lokal)'}</span>
+        {/* Clean Live Status Badge */}
+        <div className="pointer-events-auto flex items-center gap-1.5 px-3 py-1.5 rounded-full backdrop-blur-md text-[#F6F4EE] text-[11px] font-medium shadow-md bg-black/45">
+          <span className={`w-2 h-2 rounded-full ${isConnected ? 'bg-emerald-400 animate-pulse' : 'bg-emerald-400'}`}></span>
+          <span className="opacity-90 tracking-wide font-cinzel text-[10px]">LIVE WEDDING</span>
         </div>
 
-        {/* Quick Actions (Replay Polaroid Intro, BGM, Projector Screen, Admin) */}
+        {/* Quick Actions for Guests (Replay Polaroid Intro, BGM Toggle) */}
         <div className="pointer-events-auto flex items-center gap-2">
           {/* Re-open Polaroid Intro Button */}
           <button
@@ -137,26 +127,6 @@ export default function GuestLanding({
               {isPlayingBgm ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
             </button>
           )}
-
-          {/* Projector Mode Link */}
-          <button
-            type="button"
-            onClick={onOpenProjector}
-            className="p-2.5 rounded-full bg-black/45 hover:bg-black/65 text-white backdrop-blur-md shadow-md transition-all"
-            title="Layar Resepsi / Projector Mode"
-          >
-            <Tv className="w-4 h-4" />
-          </button>
-
-          {/* Admin Panel Link */}
-          <button
-            type="button"
-            onClick={onOpenAdmin}
-            className="p-2.5 rounded-full bg-black/45 hover:bg-black/65 text-white backdrop-blur-md shadow-md transition-all"
-            title="Admin Settings"
-          >
-            <Lock className="w-4 h-4" />
-          </button>
         </div>
       </header>
 
@@ -232,10 +202,18 @@ export default function GuestLanding({
           </div>
 
           {/* Subtle Watermark Footer */}
-          <div className="pt-2">
+          <div className="pt-2 flex items-center justify-center gap-1.5">
             <span className="text-[10px] tracking-widest text-[#999794] uppercase font-cinzel">
               Wedding Memories • {couple.displayNames || `${couple.brideName || 'Adisty'} & ${couple.groomName || 'Irsyad'}`}
             </span>
+            <button
+              type="button"
+              onClick={onOpenAdmin}
+              className="p-1 text-[#999794]/30 hover:text-[#263727] transition-colors"
+              title="Akses Panitia"
+            >
+              <Lock className="w-2.5 h-2.5 opacity-30 hover:opacity-100 transition-opacity" />
+            </button>
           </div>
         </div>
       </main>

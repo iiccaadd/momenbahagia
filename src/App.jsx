@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import GuestLanding from './components/GuestLanding';
 import AdminPanel from './components/AdminPanel';
+import AdminLogin from './components/AdminLogin';
 import ProjectorView from './components/ProjectorView';
 import { defaultWeddingData } from './defaultData';
 import {
@@ -16,6 +17,14 @@ import { isSupabaseConfigured } from './services/supabaseClient';
 
 export default function App() {
   const [currentView, setCurrentView] = useState('guest');
+  const [isAdminAuthenticated, setIsAdminAuthenticated] = useState(() => {
+    try {
+      return localStorage.getItem('wedding_admin_auth') === 'true';
+    } catch (e) {
+      return false;
+    }
+  });
+  const [showAdminLoginModal, setShowAdminLoginModal] = useState(false);
 
   const [weddingSettings, setWeddingSettings] = useState(() => {
     try {
@@ -50,13 +59,24 @@ export default function App() {
   const [syncCount, setSyncCount] = useState(0);
   const [cloudError, setCloudError] = useState(null);
 
-  // Hash-based routing
+  // Hash-based routing with Admin Authentication Protection
   useEffect(() => {
     const handleHash = () => {
       const hash = window.location.hash.replace('#', '');
-      if (hash === 'admin') setCurrentView('admin');
-      else if (hash === 'projector' || hash === 'live') setCurrentView('projector');
-      else setCurrentView('guest');
+      if (hash === 'admin') {
+        const isAuth = localStorage.getItem('wedding_admin_auth') === 'true';
+        if (isAuth) {
+          setIsAdminAuthenticated(true);
+          setCurrentView('admin');
+        } else {
+          setShowAdminLoginModal(true);
+          setCurrentView('guest');
+        }
+      } else if (hash === 'projector' || hash === 'live') {
+        setCurrentView('projector');
+      } else {
+        setCurrentView('guest');
+      }
     };
     handleHash();
     window.addEventListener('hashchange', handleHash);
@@ -64,6 +84,13 @@ export default function App() {
   }, []);
 
   const navigateTo = (view) => {
+    if (view === 'admin') {
+      const isAuth = localStorage.getItem('wedding_admin_auth') === 'true';
+      if (!isAuth) {
+        setShowAdminLoginModal(true);
+        return;
+      }
+    }
     window.location.hash = view === 'guest' ? '' : view;
     setCurrentView(view);
   };
@@ -234,26 +261,20 @@ export default function App() {
 
   return (
     <div className="w-full min-h-screen bg-[#faf8f5]">
-      {cloudError && (
+      {/* Cloud error banner is only shown to Admin, never bothering wedding guests */}
+      {cloudError && currentView === 'admin' && (
         <div className="fixed top-0 inset-x-0 z-50 bg-amber-600 text-white text-xs font-semibold px-4 py-2.5 text-center shadow-md flex items-center justify-between gap-3">
           <span className="truncate">⚠️ {cloudError}</span>
-          <div className="flex items-center gap-2.5 flex-shrink-0">
-            <button
-              onClick={() => navigateTo('admin')}
-              className="bg-white/20 hover:bg-white/30 px-2.5 py-1 rounded-lg text-white font-bold text-[11px] transition-colors"
-            >
-              Buka Admin
-            </button>
-            <button
-              onClick={() => setCloudError(null)}
-              className="underline font-bold text-white/90 hover:text-white"
-            >
-              Tutup
-            </button>
-          </div>
+          <button
+            onClick={() => setCloudError(null)}
+            className="underline font-bold text-white/90 hover:text-white flex-shrink-0"
+          >
+            Tutup
+          </button>
         </div>
       )}
 
+      {/* Guest Landing View (Clean, elegant, non-tamperable) */}
       {currentView === 'guest' && (
         <GuestLanding
           weddingSettings={weddingSettings}
@@ -269,19 +290,49 @@ export default function App() {
         />
       )}
 
-      {currentView === 'admin' && (
+      {/* Admin Panel View (Protected by Username: mirstyvan, Password: 11nov2026) */}
+      {currentView === 'admin' && isAdminAuthenticated && (
         <AdminPanel
           weddingSettings={weddingSettings}
           templates={templates}
           memories={memories}
           onClose={() => navigateTo('guest')}
           onOpenProjector={() => navigateTo('projector')}
+          onUpdateCouple={(updatedCouple) => setWeddingSettings((prev) => ({ ...prev, couple: updatedCouple }))}
           onUpdateTemplates={(updatedTpls) => setTemplates(updatedTpls)}
           onDeleteMemory={handleDeleteMemory}
           onPinMemory={handlePinMemory}
+          onLogout={() => {
+            try {
+              localStorage.removeItem('wedding_admin_auth');
+              localStorage.removeItem('wedding_admin_user');
+            } catch (e) {}
+            setIsAdminAuthenticated(false);
+            navigateTo('guest');
+          }}
         />
       )}
 
+      {/* Admin Login Modal */}
+      {(showAdminLoginModal || (currentView === 'admin' && !isAdminAuthenticated)) && (
+        <AdminLogin
+          couple={weddingSettings?.couple}
+          onLoginSuccess={() => {
+            setIsAdminAuthenticated(true);
+            setShowAdminLoginModal(false);
+            setCurrentView('admin');
+            window.location.hash = 'admin';
+          }}
+          onCancel={() => {
+            setShowAdminLoginModal(false);
+            if (currentView === 'admin') {
+              navigateTo('guest');
+            }
+          }}
+        />
+      )}
+
+      {/* Projector Live Screen View */}
       {currentView === 'projector' && (
         <ProjectorView
           weddingSettings={weddingSettings}
