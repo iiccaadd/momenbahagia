@@ -21,6 +21,12 @@ import PhotoCaptureStep from './PhotoCaptureStep';
 import { renderPhotostrip } from '../utils/canvasExport';
 import { useNotify } from '../context/NotificationContext';
 import { saveMemoryOnline } from '../services/cloudSync';
+import {
+  getStoredUploadCount,
+  getStoredLastUploadTime,
+  calculateCooldownRemaining,
+  MAX_GUEST_UPLOADS,
+} from '../hooks/useUploadLimit';
 
 export default function AddMemoryModal({
   isOpen,
@@ -65,9 +71,23 @@ export default function AddMemoryModal({
     });
   }, [selectedTemplate]);
 
-  // Reset modal state and lock background scroll when opened
+  // Reset modal state, check limits, and lock background scroll when opened
   useEffect(() => {
     if (isOpen) {
+      const count = getStoredUploadCount();
+      if (count >= MAX_GUEST_UPLOADS) {
+        notify.info('Batas upload kenangan telah mencapai maksimal 3 kali. Terima kasih!', 'Batas Tercapai');
+        onClose();
+        return;
+      }
+      const cooldown = calculateCooldownRemaining(getStoredLastUploadTime());
+      if (cooldown > 0) {
+        const mins = Math.ceil(cooldown / 60);
+        notify.warning(`Harap menunggu waktu jeda ${mins} menit sebelum upload berikutnya.`, 'Waktu Tunggu');
+        onClose();
+        return;
+      }
+
       setCurrentStep(1);
       setGuestName('');
       setGuestMessage('');
@@ -167,6 +187,24 @@ export default function AddMemoryModal({
 
   const handleSubmitMemory = async () => {
     if (!generatedStripUrl) return;
+
+    // Periksa batas 3 kali upload
+    const currentUploadCount = getStoredUploadCount();
+    if (currentUploadCount >= MAX_GUEST_UPLOADS) {
+      notify.error('Batas upload Anda telah mencapai maksimal 3 kali. Terima kasih!', 'Batas Tercapai');
+      onClose();
+      return;
+    }
+
+    // Periksa jeda cooldown 5 menit
+    const remainingCooldown = calculateCooldownRemaining(getStoredLastUploadTime());
+    if (remainingCooldown > 0) {
+      const mins = Math.ceil(remainingCooldown / 60);
+      notify.warning(`Harap menunggu waktu jeda ${mins} menit sebelum mengunggah foto berikutnya.`, 'Waktu Tunggu');
+      onClose();
+      return;
+    }
+
     setIsSubmitting(true);
 
     try {

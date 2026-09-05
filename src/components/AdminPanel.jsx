@@ -832,28 +832,45 @@ export default function AdminPanel({
                 </p>
               </div>
 
-              {memories.length > 0 && (
+              <div className="flex flex-wrap items-center gap-2">
                 <button
                   type="button"
-                  onClick={async () => {
-                    const confirmed = await notify.confirm(
-                      'Apakah Anda yakin ingin menghapus SEMUA kenangan dan foto yang telah diupload? Tampilan tamu dan proyektor akan menjadi kosong dan bersih untuk persiapan acara.',
-                      'Kosongkan Semua Kenangan',
-                      'Ya, Hapus Semua',
-                      'Batal'
-                    );
-                    if (confirmed) {
-                      onClearAllMemories && onClearAllMemories();
-                      notify.success('Semua kenangan dan foto berhasil dikosongkan.');
+                  onClick={() => {
+                    if (typeof window !== 'undefined' && window.resetGuestUploadLimit) {
+                      window.resetGuestUploadLimit();
+                      notify.success('Batas upload 3x dan jeda waktu 5 menit untuk perangkat ini berhasil di-reset.');
                     }
                   }}
-                  className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-semibold border border-rose-200 transition-all shadow-xs"
-                  title="Hapus semua foto dan ucapan tamu"
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 text-xs font-semibold border border-amber-200 transition-all shadow-xs"
+                  title="Reset batas 3 upload dan cooldown 5 menit untuk pengujian di device ini"
                 >
-                  <Trash2 className="w-4 h-4 text-rose-600" />
-                  Kosongkan Tampilan Tamu ({memories.length})
+                  <RefreshCw className="w-3.5 h-3.5 text-amber-600" />
+                  Reset Kuota Upload (Device Ini)
                 </button>
-              )}
+
+                {memories.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const confirmed = await notify.confirm(
+                        'Apakah Anda yakin ingin menghapus SEMUA kenangan dan foto yang telah diupload? Tampilan tamu dan proyektor akan menjadi kosong dan bersih untuk persiapan acara.',
+                        'Kosongkan Semua Kenangan',
+                        'Ya, Hapus Semua',
+                        'Batal'
+                      );
+                      if (confirmed) {
+                        onClearAllMemories && onClearAllMemories();
+                        notify.success('Semua kenangan dan foto berhasil dikosongkan.');
+                      }
+                    }}
+                    className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-semibold border border-rose-200 transition-all shadow-xs"
+                    title="Hapus semua foto dan ucapan tamu"
+                  >
+                    <Trash2 className="w-4 h-4 text-rose-600" />
+                    Kosongkan Tampilan Tamu ({memories.length})
+                  </button>
+                )}
+              </div>
             </div>
 
             {memories.length === 0 ? (

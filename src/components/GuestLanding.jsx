@@ -1,9 +1,10 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Camera, Volume2, VolumeX, Lock, Tv, Sparkles, X, ArrowLeft, Heart, Mail } from 'lucide-react';
+import { Camera, Volume2, VolumeX, Lock, Tv, Sparkles, X, ArrowLeft, Heart, Mail, Clock, CheckCircle2 } from 'lucide-react';
 import ExploreMemories from './ExploreMemories';
 import AddMemoryModal from './AddMemoryModal';
 import PolaroidIntro from './PolaroidIntro';
 import { isDummyMemory } from '../services/dbStorage';
+import { useUploadLimit } from '../hooks/useUploadLimit';
 
 export default function GuestLanding({
   weddingSettings,
@@ -18,6 +19,14 @@ export default function GuestLanding({
   syncCount = 0,
 }) {
   const validMemories = (memories || []).filter((m) => !isDummyMemory(m));
+  const {
+    uploadCount,
+    isLimitReached,
+    isCoolingDown,
+    formattedCooldown,
+    remainingUploads,
+    recordUpload,
+  } = useUploadLimit();
   const [isIntroOpen, setIsIntroOpen] = useState(true);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isExploreOpen, setIsExploreOpen] = useState(false);
@@ -183,24 +192,75 @@ export default function GuestLanding({
 
           {/* Action Buttons */}
           <div className="w-full space-y-3 pt-2">
-            {/* Primary Action: TAMBAHKAN MOMEN */}
-            <button
-              type="button"
-              onClick={() => setIsAddModalOpen(true)}
-              className="w-full py-4 rounded-lg bg-[#263727] hover:bg-[#1d2b1e] text-[#F6F4EE] font-cinzel font-semibold text-sm sm:text-base tracking-[0.12em] uppercase shadow-lg transition-all duration-300 hover:scale-[1.02] active:scale-98 flex items-center justify-center gap-2"
-            >
-              <Camera className="w-4 h-4" />
-              TAMBAHKAN MOMEN
-            </button>
+            {isLimitReached ? (
+              /* Apabila batas upload sudah sampai 3 kali: HILANGKAN TOMBOL UPLOAD FOTO */
+              <div className="space-y-3 animate-wmfadein">
+                <div className="w-full py-3.5 px-4 rounded-xl bg-[#263727]/10 border border-[#263727]/20 text-[#263727] flex flex-col items-center justify-center gap-1 shadow-xs text-center">
+                  <div className="flex items-center gap-1.5 font-cinzel font-bold text-xs tracking-wider uppercase">
+                    <CheckCircle2 className="w-4 h-4 text-[#263727]" />
+                    Batas Upload Tercapai (3/3)
+                  </div>
+                  <p className="text-[11px] text-[#263727]/80 font-serif italic">
+                    Terima kasih telah berbagi kenangan indah bersama kami! ✨
+                  </p>
+                </div>
 
-            {/* Secondary Link: Jelajahi Kenangan */}
-            <button
-              type="button"
-              onClick={() => setIsExploreOpen(true)}
-              className="w-full py-2 text-xs font-semibold text-[#263727] hover:text-[#1d2b1e] tracking-[0.06em] uppercase underline underline-offset-4 transition-colors"
-            >
-              Jelajahi Kenangan ({validMemories.length})
-            </button>
+                <button
+                  type="button"
+                  onClick={() => setIsExploreOpen(true)}
+                  className="w-full py-3.5 rounded-lg bg-[#263727] hover:bg-[#1d2b1e] text-[#F6F4EE] font-cinzel font-semibold text-xs sm:text-sm tracking-[0.12em] uppercase shadow-md transition-all duration-300 hover:scale-[1.02] active:scale-98 flex items-center justify-center gap-2"
+                >
+                  <Sparkles className="w-4 h-4 text-[#E9DDC5]" />
+                  Jelajahi Kenangan ({validMemories.length})
+                </button>
+              </div>
+            ) : isCoolingDown ? (
+              /* Batasan waktu selama 5 menit setelah tamu upload */
+              <div className="space-y-2 animate-wmfadein">
+                <button
+                  type="button"
+                  disabled
+                  className="w-full py-4 rounded-lg bg-[#263727]/50 text-[#F6F4EE]/90 font-cinzel font-semibold text-xs sm:text-sm tracking-[0.12em] uppercase shadow-sm cursor-not-allowed flex items-center justify-center gap-2 border border-[#263727]/30"
+                  title="Harap menunggu 5 menit sebelum dapat mengupload momen berikutnya"
+                >
+                  <Clock className="w-4 h-4 animate-pulse text-[#E9DDC5]" />
+                  TUNGGU {formattedCooldown} (SESI {uploadCount}/3)
+                </button>
+                <p className="text-[10.5px] text-[#8c827a] font-cinzel tracking-wider">
+                  Jeda 5 menit antar upload • Tersisa {remainingUploads} kesempatan
+                </p>
+
+                {/* Secondary Link: Jelajahi Kenangan */}
+                <button
+                  type="button"
+                  onClick={() => setIsExploreOpen(true)}
+                  className="w-full py-2 text-xs font-semibold text-[#263727] hover:text-[#1d2b1e] tracking-[0.06em] uppercase underline underline-offset-4 transition-colors"
+                >
+                  Jelajahi Kenangan ({validMemories.length})
+                </button>
+              </div>
+            ) : (
+              /* Tombol Upload Normal (Belum 3 kali dan tidak sedang cooldown) */
+              <div className="space-y-3">
+                <button
+                  type="button"
+                  onClick={() => setIsAddModalOpen(true)}
+                  className="w-full py-4 rounded-lg bg-[#263727] hover:bg-[#1d2b1e] text-[#F6F4EE] font-cinzel font-semibold text-sm sm:text-base tracking-[0.12em] uppercase shadow-lg transition-all duration-300 hover:scale-[1.02] active:scale-98 flex items-center justify-center gap-2"
+                >
+                  <Camera className="w-4 h-4" />
+                  TAMBAHKAN MOMEN {uploadCount > 0 ? `(${uploadCount}/3)` : ''}
+                </button>
+
+                {/* Secondary Link: Jelajahi Kenangan */}
+                <button
+                  type="button"
+                  onClick={() => setIsExploreOpen(true)}
+                  className="w-full py-2 text-xs font-semibold text-[#263727] hover:text-[#1d2b1e] tracking-[0.06em] uppercase underline underline-offset-4 transition-colors"
+                >
+                  Jelajahi Kenangan ({validMemories.length})
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Subtle Watermark Footer */}
@@ -275,11 +335,12 @@ export default function GuestLanding({
 
       {/* Add Memory 4-Step Workflow Modal */}
       <AddMemoryModal
-        isOpen={isAddModalOpen}
+        isOpen={isAddModalOpen && !isLimitReached && !isCoolingDown}
         onClose={() => setIsAddModalOpen(false)}
         weddingSettings={weddingSettings || { couple }}
         templates={templates}
         onMemorySubmitted={(newMem) => {
+          recordUpload();
           if (onAddMemory) onAddMemory(newMem);
           setIsAddModalOpen(false);
           setIsExploreOpen(true);
