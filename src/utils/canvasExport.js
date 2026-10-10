@@ -266,3 +266,62 @@ function roundRect(ctx, x, y, width, height, radius = 0) {
   ctx.quadraticCurveTo(x, y, x + radius, y);
   ctx.closePath();
 }
+
+// Compress base64 image safely to target width and quality without producing empty "data:,"
+export async function compressBase64Image(dataUrl, maxWidth = 450, quality = 0.78) {
+  if (!dataUrl || typeof dataUrl !== 'string' || !dataUrl.startsWith('data:image/')) {
+    return dataUrl;
+  }
+
+  return new Promise((resolve) => {
+    // Safety timeout in case image loading stalls on slow devices
+    const timeout = setTimeout(() => resolve(dataUrl), 2500);
+
+    const img = new Image();
+    img.onload = () => {
+      clearTimeout(timeout);
+      try {
+        const naturalW = img.naturalWidth || img.width;
+        const naturalH = img.naturalHeight || img.height;
+
+        if (!naturalW || !naturalH || naturalW <= 0 || naturalH <= 0) {
+          return resolve(dataUrl);
+        }
+
+        const scale = Math.min(1, maxWidth / naturalW);
+        const w = Math.max(1, Math.round(naturalW * scale));
+        const h = Math.max(1, Math.round(naturalH * scale));
+
+        const canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return resolve(dataUrl);
+
+        // Fill white background to avoid transparent sections turning black
+        ctx.fillStyle = '#FFFFFF';
+        ctx.fillRect(0, 0, w, h);
+        ctx.drawImage(img, 0, 0, w, h);
+
+        const compressed = canvas.toDataURL('image/jpeg', quality);
+        if (compressed && compressed.startsWith('data:image/jpeg') && compressed.length > 500) {
+          resolve(compressed);
+        } else {
+          resolve(dataUrl);
+        }
+      } catch (e) {
+        console.warn('[Compress] Exception during image compression, using original:', e);
+        resolve(dataUrl);
+      }
+    };
+
+    img.onerror = () => {
+      clearTimeout(timeout);
+      console.warn('[Compress] Failed to load image for compression, using original');
+      resolve(dataUrl);
+    };
+
+    img.src = dataUrl;
+  });
+}
+

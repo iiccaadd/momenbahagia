@@ -37,7 +37,7 @@ import {
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import QRCode from 'qrcode';
-import { renderPhotostrip } from '../utils/canvasExport';
+import { renderPhotostrip, compressBase64Image } from '../utils/canvasExport';
 import { useNotify } from '../context/NotificationContext';
 import {
   getSupabaseCredentials,
@@ -245,7 +245,15 @@ export default function AdminPanel({
     if (!file) return;
 
     try {
-      const url = await uploadMedia('admin', file, fileExt(file));
+      // Every guest downloads the cover, so shrink phone photos (often 5-10MB) before upload
+      const original = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = () => reject(new Error('Gagal membaca file'));
+        reader.readAsDataURL(file);
+      });
+      const blob = await (await fetch(await compressBase64Image(original, 1600, 0.82))).blob();
+      const url = await uploadMedia('admin', blob, blob.type === 'image/jpeg' ? 'jpg' : fileExt(file));
       setFormData((prev) => ({ ...prev, heroImage: url }));
       await saveCouple({ ...formData, heroImage: url });
       setSaveSuccess(true);

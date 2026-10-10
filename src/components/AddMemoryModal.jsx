@@ -18,7 +18,7 @@ import confetti from 'canvas-confetti';
 import VoiceRecorder from './VoiceRecorder';
 import TemplateSelector from './TemplateSelector';
 import PhotoCaptureStep from './PhotoCaptureStep';
-import { renderPhotostrip } from '../utils/canvasExport';
+import { renderPhotostrip, compressBase64Image } from '../utils/canvasExport';
 import { useNotify } from '../context/NotificationContext';
 import { saveMemoryOnline } from '../services/cloudSync';
 import {
@@ -262,65 +262,6 @@ export default function AddMemoryModal({
       setIsSubmitting(false);
     }
   };
-
-  // Compress base64 image safely to target width and quality without producing empty "data:,"
-  async function compressBase64Image(dataUrl, maxWidth = 450, quality = 0.78) {
-    if (!dataUrl || typeof dataUrl !== 'string' || !dataUrl.startsWith('data:image/')) {
-      return dataUrl;
-    }
-
-    return new Promise((resolve) => {
-      // Safety timeout in case image loading stalls on slow devices
-      const timeout = setTimeout(() => resolve(dataUrl), 2500);
-
-      const img = new Image();
-      img.onload = () => {
-        clearTimeout(timeout);
-        try {
-          const naturalW = img.naturalWidth || img.width;
-          const naturalH = img.naturalHeight || img.height;
-
-          if (!naturalW || !naturalH || naturalW <= 0 || naturalH <= 0) {
-            return resolve(dataUrl);
-          }
-
-          const scale = Math.min(1, maxWidth / naturalW);
-          const w = Math.max(1, Math.round(naturalW * scale));
-          const h = Math.max(1, Math.round(naturalH * scale));
-
-          const canvas = document.createElement('canvas');
-          canvas.width = w;
-          canvas.height = h;
-          const ctx = canvas.getContext('2d');
-          if (!ctx) return resolve(dataUrl);
-
-          // Fill white background to avoid transparent sections turning black
-          ctx.fillStyle = '#FFFFFF';
-          ctx.fillRect(0, 0, w, h);
-          ctx.drawImage(img, 0, 0, w, h);
-
-          const compressed = canvas.toDataURL('image/jpeg', quality);
-          if (compressed && compressed.startsWith('data:image/jpeg') && compressed.length > 500) {
-            resolve(compressed);
-          } else {
-            resolve(dataUrl);
-          }
-        } catch (e) {
-          console.warn('[Compress] Exception during image compression, using original:', e);
-          resolve(dataUrl);
-        }
-      };
-
-      img.onerror = () => {
-        clearTimeout(timeout);
-        console.warn('[Compress] Failed to load image for compression, using original');
-        resolve(dataUrl);
-      };
-
-      img.src = dataUrl;
-    });
-  }
-
 
   return (
     <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex justify-center items-end sm:items-center p-0 sm:p-4 animate-wmfadein select-none">
