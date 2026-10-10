@@ -344,9 +344,7 @@ export default function GuestLanding({
         templates={templates}
         onMemorySubmitted={async (newMem) => {
           recordUpload();
-          if (onAddMemory) {
-            await onAddMemory(newMem);
-          }
+          return onAddMemory ? onAddMemory(newMem) : null;
         }}
       />
     </div>

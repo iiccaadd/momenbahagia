@@ -233,8 +233,13 @@ export default function AddMemoryModal({
       };
 
       // onMemorySubmitted (App.jsx) saves to IndexedDB + Supabase + Drive backup; saving here too uploaded every photo twice
-      if (onMemorySubmitted) {
-        await onMemorySubmitted(memoryData);
+      const result = onMemorySubmitted ? await onMemorySubmitted(memoryData) : null;
+      // Without this the guest saw "success" while the photo stayed only on this phone
+      if (result && !result.isCloudSaved) {
+        notify.warning(
+          'Foto tersimpan di HP ini, tapi belum terkirim ke album bersama. Periksa koneksi internet lalu coba kirim lagi.',
+          'Belum Terkirim'
+        );
       }
 
       setIsSuccess(true);
