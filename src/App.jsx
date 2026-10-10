@@ -87,8 +87,16 @@ export default function App() {
   // Admin session from Supabase Auth
   useEffect(() => {
     if (!supabase) return;
-    supabase.auth.getSession().then(({ data }) => setIsAdminAuthenticated(Boolean(data.session)));
-    const { data } = supabase.auth.onAuthStateChange((_event, session) => setIsAdminAuthenticated(Boolean(session)));
+    // A signed-in account is only admin if it is in the admins table; checking here keeps the
+    // login modal mounted (with its error message) for non-admin accounts.
+    const checkAdmin = async (session) => {
+      if (!session) return setIsAdminAuthenticated(false);
+      const { data } = await supabase.rpc('is_admin');
+      setIsAdminAuthenticated(data === true);
+    };
+    supabase.auth.getSession().then(({ data }) => checkAdmin(data.session));
+    // setTimeout: Supabase calls awaited inside this callback can deadlock the auth client
+    const { data } = supabase.auth.onAuthStateChange((_event, session) => setTimeout(() => checkAdmin(session), 0));
     return () => data.subscription.unsubscribe();
   }, []);
 
