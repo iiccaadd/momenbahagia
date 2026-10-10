@@ -1174,7 +1174,7 @@ export default function AdminPanel({
                   <span className="w-6 h-6 rounded-full bg-[#c5a880] text-white font-bold flex items-center justify-center text-xs">3</span>
                   <h5 className="font-bold text-[#3a2c1f]">Kredensial &amp; Admin</h5>
                   <p className="text-[11px] text-[#7a6b5d] leading-relaxed">
-                    Buka <strong>Project Settings → API</strong>, salin URL & Anon Key, lalu masukkan sebagai <code>VITE_SUPABASE_URL</code> &amp; <code>VITE_SUPABASE_ANON_KEY</code> di Environment Variables Vercel, lalu deploy ulang. Buat user admin di <strong>Authentication → Users</strong> dan daftarkan lewat perintah di bagian 3 script SQL.
+                    Alamat project Supabase sudah tertanam di aplikasi (src/services/supabaseClient.js), tidak perlu env Vercel. Buat user admin di <strong>Authentication → Users</strong> dan daftarkan lewat perintah di bagian 3 script SQL.
                   </p>
                 </div>
               </div>
