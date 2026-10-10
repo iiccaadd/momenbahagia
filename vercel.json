@@ -3,6 +3,7 @@
   "outputDirectory": "dist",
   "framework": "vite",
   "rewrites": [
+    { "source": "/sb/:path*", "destination": "https://gfbemoenmdzsvpacrpby.supabase.co/:path*" },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }

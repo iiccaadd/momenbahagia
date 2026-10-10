@@ -17,7 +17,13 @@ export function getSupabaseCredentials() {
   return { url, key, isConfigured, source: isConfigured ? 'env' : 'none' };
 }
 
+// On the deployed site, REST/Auth/Storage go through our own domain (vercel.json rewrites /sb/* to
+// supabase.co), so browsers, extensions or networks that block supabase.co still work.
+// shortcut: `vite preview` has no such rewrite, so test production builds on Vercel.
+const proxyUrl = () => (env.PROD && typeof window !== 'undefined' ? `${window.location.origin}/sb` : null);
+
 let activeClient = null;
+let realtimeClient = null;
 
 export function getSupabaseClient() {
   const creds = getSupabaseCredentials();
@@ -25,7 +31,7 @@ export function getSupabaseClient() {
   if (activeClient) return activeClient;
 
   try {
-    activeClient = createClient(creds.url, creds.key, {
+    activeClient = createClient(proxyUrl() || creds.url, creds.key, {
       realtime: { params: { eventsPerSecond: 10 } }
     });
     return activeClient;
@@ -33,6 +39,28 @@ export function getSupabaseClient() {
     console.error('[Supabase] Gagal inisialisasi client:', e);
     return null;
   }
+}
+
+// Stored file URLs point at supabase.co; serve them through the same proxy when it is active
+export function viaProxy(url) {
+  const proxy = proxyUrl();
+  const { url: direct } = getSupabaseCredentials();
+  return proxy && typeof url === 'string' && url.startsWith(direct) ? proxy + url.slice(direct.length) : url;
+}
+
+// Vercel cannot proxy WebSockets, so Realtime connects to supabase.co directly.
+// If that is blocked, the app's periodic sync still picks up new photos.
+export function getRealtimeClient() {
+  const creds = getSupabaseCredentials();
+  if (!creds.isConfigured) return null;
+  if (!proxyUrl()) return getSupabaseClient();
+  if (!realtimeClient) {
+    realtimeClient = createClient(creds.url, creds.key, {
+      auth: { persistSession: false, autoRefreshToken: false, storageKey: 'sb-realtime-only' },
+      realtime: { params: { eventsPerSecond: 10 } }
+    });
+  }
+  return realtimeClient;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

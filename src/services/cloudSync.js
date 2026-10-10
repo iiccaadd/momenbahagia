@@ -9,8 +9,10 @@ import {
 } from './dbStorage.js';
 import {
   getSupabaseClient,
+  getRealtimeClient,
   getSupabaseCredentials,
-  uploadMedia
+  uploadMedia,
+  viaProxy
 } from './supabaseClient.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -120,9 +122,9 @@ function rowToMemory(row) {
     guestName: row.guest_name || row.guestName || 'Tamu Spesial',
     message: msg,
     guestMessage: msg,
-    stripImage: strip,
-    stripUrl: strip,
-    audioUrl: audio,
+    stripImage: viaProxy(strip),
+    stripUrl: viaProxy(strip),
+    audioUrl: viaProxy(audio),
     audioDuration: audioDur,
     galleryPhotos: Array.isArray(row.gallery_photos) ? row.gallery_photos : (Array.isArray(row.galleryPhotos) ? row.galleryPhotos : []),
     likedIps: Array.isArray(row.liked_ips) ? row.liked_ips : (Array.isArray(row.likedIps) ? row.likedIps : []),
@@ -387,7 +389,7 @@ export function subscribeToMemories(callbacks = {}) {
     : callbacks;
 
   const connectRealtime = () => {
-    const client = getSupabaseClient();
+    const client = getRealtimeClient();
     const creds = getSupabaseCredentials();
 
     if (!creds.isConfigured || !client) {
@@ -511,7 +513,7 @@ export function subscribeToMemories(callbacks = {}) {
   connectRealtime();
 
   return () => {
-    const client = getSupabaseClient();
+    const client = getRealtimeClient();
     if (activeChannel && client) {
       client.removeChannel(activeChannel);
     }

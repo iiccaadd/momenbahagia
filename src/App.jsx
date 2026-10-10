@@ -17,7 +17,7 @@ import {
   subscribeToMemories
 } from './services/cloudSync';
 import { isDummyMemory } from './services/dbStorage';
-import { supabase } from './services/supabaseClient';
+import { supabase, viaProxy } from './services/supabaseClient';
 
 export default function App() {
   const [currentView, setCurrentView] = useState('guest');
@@ -104,9 +104,12 @@ export default function App() {
   useEffect(() => {
     fetchSettingsOnline().then((row) => {
       if (row?.couple) {
-        setWeddingSettings((prev) => ({ ...prev, couple: { ...prev.couple, ...row.couple } }));
+        const couple = { ...row.couple, heroImage: viaProxy(row.couple.heroImage), bgmUrl: viaProxy(row.couple.bgmUrl) };
+        setWeddingSettings((prev) => ({ ...prev, couple: { ...prev.couple, ...couple } }));
       }
-      if (Array.isArray(row?.templates) && row.templates.length > 0) setTemplates(row.templates);
+      if (Array.isArray(row?.templates) && row.templates.length > 0) {
+        setTemplates(row.templates.map((t) => ({ ...t, customFrameUrl: viaProxy(t.customFrameUrl) })));
+      }
     });
   }, []);
 
