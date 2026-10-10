@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Lock, User, KeyRound, Eye, EyeOff, ArrowLeft, ShieldCheck, AlertCircle } from 'lucide-react';
+import { supabase } from '../services/supabaseClient';
 
 export default function AdminLogin({ onLoginSuccess, onCancel, couple = {} }) {
   const [username, setUsername] = useState('');
@@ -8,31 +9,26 @@ export default function AdminLogin({ onLoginSuccess, onCancel, couple = {} }) {
   const [errorMsg, setErrorMsg] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e?.preventDefault();
     setErrorMsg('');
+    if (!supabase) {
+      setErrorMsg('Supabase belum dikonfigurasi (VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY).');
+      return;
+    }
     setIsLoading(true);
 
-    const cleanUser = username.trim();
-    const cleanPass = password.trim();
+    const { error } = await supabase.auth.signInWithPassword({ email: username.trim(), password });
+    // A valid account that is not in the admins table cannot change anything (RLS), so refuse it here too
+    const { data: isAdmin } = error ? { data: false } : await supabase.rpc('is_admin');
+    setIsLoading(false);
 
-    // Required credentials: username "mirstyvan", password "11nov2026"
-    if (cleanUser === 'mirstyvan' && cleanPass === '11nov2026') {
-      try {
-        localStorage.setItem('wedding_admin_auth', 'true');
-        localStorage.setItem('wedding_admin_user', 'mirstyvan');
-      } catch (e) {}
-
-      setTimeout(() => {
-        setIsLoading(false);
-        onLoginSuccess();
-      }, 400);
-    } else {
-      setTimeout(() => {
-        setIsLoading(false);
-        setErrorMsg('Username atau password tidak sesuai. Akses khusus pengantin / panitia.');
-      }, 300);
+    if (error || !isAdmin) {
+      if (!error) await supabase.auth.signOut();
+      setErrorMsg('Email atau password tidak sesuai. Akses khusus pengantin / panitia.');
+      return;
     }
+    onLoginSuccess();
   };
 
   return (
@@ -70,19 +66,19 @@ export default function AdminLogin({ onLoginSuccess, onCancel, couple = {} }) {
           {/* Username Input */}
           <div className="space-y-1.5">
             <label className="block text-xs font-cinzel font-bold text-[#263727] uppercase tracking-wider">
-              Username Admin
+              Email Admin
             </label>
             <div className="relative">
               <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-[#999794]">
                 <User className="w-4 h-4" />
               </div>
               <input
-                type="text"
+                type="email"
                 autoFocus
                 required
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                placeholder="Masukkan username"
+                placeholder="Masukkan email admin"
                 className="w-full pl-10 pr-4 py-3 rounded-2xl bg-white border border-[#E9DDC5] text-sm text-[#263727] placeholder-[#999794] focus:outline-none focus:ring-2 focus:ring-[#263727]/30 transition-all"
               />
             </div>

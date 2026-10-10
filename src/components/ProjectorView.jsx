@@ -14,6 +14,7 @@ import {
   SlidersHorizontal,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
+import QRCode from 'qrcode';
 
 export default function ProjectorView({
   weddingSettings,
@@ -44,11 +45,8 @@ export default function ProjectorView({
 
   // Fetch QR Code
   useEffect(() => {
-    fetch('/api/qrcode')
-      .then((r) => r.json())
-      .then((data) => {
-        if (data.qrCode) setQrCodeUrl(data.qrCode);
-      })
+    QRCode.toDataURL(window.location.origin, { width: 400, margin: 2, color: { dark: '#231123', light: '#faf8f5' } })
+      .then(setQrCodeUrl)
       .catch(console.error);
   }, []);
 

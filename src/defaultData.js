@@ -3,7 +3,7 @@ export const defaultWeddingData = {
     groomName: "Irsyad",
     brideName: "Adisty",
     displayNames: "Adisty & Irsyad",
-    eventDate: "2026-08-08",
+    eventDate: "2026-11-11",
     formattedDate: "11 November 2026",
     subtitle: "WEDDING MEMORIES",
     tagline: "CAPTURE EVERY BEAUTIFUL MOMENT AND CREATE MEMORIES TOGETHER",

@@ -12,20 +12,17 @@ import {
   onMemoryBroadcast,
   deleteMemoryOnline,
   clearAllMemoriesOnline,
+  pinMemoryOnline,
+  fetchSettingsOnline,
   subscribeToMemories
 } from './services/cloudSync';
 import { isDummyMemory } from './services/dbStorage';
-import { isSupabaseConfigured } from './services/supabaseClient';
+import { supabase } from './services/supabaseClient';
 
 export default function App() {
   const [currentView, setCurrentView] = useState('guest');
-  const [isAdminAuthenticated, setIsAdminAuthenticated] = useState(() => {
-    try {
-      return localStorage.getItem('wedding_admin_auth') === 'true';
-    } catch (e) {
-      return false;
-    }
-  });
+  // Only gates the UI; real protection is Supabase RLS (is_admin()) on every write
+  const [isAdminAuthenticated, setIsAdminAuthenticated] = useState(false);
   const [showAdminLoginModal, setShowAdminLoginModal] = useState(false);
 
   const [weddingSettings, setWeddingSettings] = useState(() => {
@@ -87,19 +84,37 @@ export default function App() {
     } catch (e) {}
   }, []);
 
-  // Hash-based routing with Admin Authentication Protection
+  // Admin session from Supabase Auth
+  useEffect(() => {
+    if (!supabase) return;
+    supabase.auth.getSession().then(({ data }) => setIsAdminAuthenticated(Boolean(data.session)));
+    const { data } = supabase.auth.onAuthStateChange((_event, session) => setIsAdminAuthenticated(Boolean(session)));
+    return () => data.subscription.unsubscribe();
+  }, []);
+
+  // Shared wedding settings from Supabase (cached in localStorage for the first paint)
+  useEffect(() => {
+    fetchSettingsOnline().then((row) => {
+      if (row?.couple) {
+        setWeddingSettings((prev) => ({ ...prev, couple: { ...prev.couple, ...row.couple } }));
+      }
+      if (Array.isArray(row?.templates) && row.templates.length > 0) setTemplates(row.templates);
+    });
+  }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('wedding_settings', JSON.stringify(weddingSettings));
+      localStorage.setItem('wedding_templates', JSON.stringify(templates));
+    } catch (e) {}
+  }, [weddingSettings, templates]);
+
+  // Hash-based routing; the admin view shows the login modal until a session exists
   useEffect(() => {
     const handleHash = () => {
       const hash = window.location.hash.replace('#', '');
       if (hash === 'admin') {
-        const isAuth = localStorage.getItem('wedding_admin_auth') === 'true';
-        if (isAuth) {
-          setIsAdminAuthenticated(true);
-          setCurrentView('admin');
-        } else {
-          setShowAdminLoginModal(true);
-          setCurrentView('guest');
-        }
+        setCurrentView('admin');
       } else if (hash === 'projector' || hash === 'live') {
         setCurrentView('projector');
       } else {
@@ -112,19 +127,12 @@ export default function App() {
   }, []);
 
   const navigateTo = (view) => {
-    if (view === 'admin') {
-      const isAuth = localStorage.getItem('wedding_admin_auth') === 'true';
-      if (!isAuth) {
-        setShowAdminLoginModal(true);
-        return;
-      }
-    }
     window.location.hash = view === 'guest' ? '' : view;
     setCurrentView(view);
   };
 
   // ─────────────────────────────────────────────────────────────────────────────
-  // Cloud Sync Engine — polls Supabase every 5s + Realtime subscription
+  // Cloud Sync Engine — Realtime subscription + slow fallback poll
   // ─────────────────────────────────────────────────────────────────────────────
   useEffect(() => {
     const syncData = async () => {
@@ -159,8 +167,9 @@ export default function App() {
     // Immediate initial sync
     syncData();
 
-    // Poll every 5s for cross-device updates
-    const interval = setInterval(syncData, 5000);
+    // Realtime delivers changes instantly; this poll only covers a dropped connection.
+    // Every guest phone runs it, so keep it slow.
+    const interval = setInterval(syncData, 60000);
 
     // Sync on tab refocus
     const onFocus = () => syncData();
@@ -286,17 +295,25 @@ export default function App() {
   };
 
   const handleDeleteMemory = async (id) => {
+    const result = await deleteMemoryOnline(id);
+    if (!result.success) return setCloudError(`Gagal menghapus: ${result.error}`);
     setMemories((prev) => prev.filter((m) => m.id !== id));
-    await deleteMemoryOnline(id);
   };
 
   const handleClearAllMemories = async () => {
+    const result = await clearAllMemoriesOnline();
+    if (!result.success) return setCloudError(`Gagal menghapus semua: ${result.error}`);
     setMemories([]);
     setLatestMemory(null);
-    await clearAllMemoriesOnline();
   };
 
-  const handlePinMemory = async (_id) => {};
+  const handlePinMemory = async (id) => {
+    const target = memories.find((m) => m.id === id);
+    if (!target) return;
+    const result = await pinMemoryOnline(id, !target.isPinned);
+    if (!result.success) return setCloudError(`Gagal pin: ${result.error}`);
+    setMemories((prev) => mergeMemories([], prev.map((m) => (m.id === id ? { ...m, isPinned: !target.isPinned } : m))));
+  };
 
   const cleanMemories = (memories || []).filter((m) => !isDummyMemory(m));
 
@@ -331,7 +348,7 @@ export default function App() {
         />
       )}
 
-      {/* Admin Panel View (Protected by Username: mirstyvan, Password: 11nov2026) */}
+      {/* Admin Panel View (Supabase Auth login; writes are enforced by RLS) */}
       {currentView === 'admin' && isAdminAuthenticated && (
         <AdminPanel
           weddingSettings={weddingSettings}
@@ -344,11 +361,8 @@ export default function App() {
           onDeleteMemory={handleDeleteMemory}
           onClearAllMemories={handleClearAllMemories}
           onPinMemory={handlePinMemory}
-          onLogout={() => {
-            try {
-              localStorage.removeItem('wedding_admin_auth');
-              localStorage.removeItem('wedding_admin_user');
-            } catch (e) {}
+          onLogout={async () => {
+            await supabase?.auth.signOut();
             setIsAdminAuthenticated(false);
             navigateTo('guest');
           }}

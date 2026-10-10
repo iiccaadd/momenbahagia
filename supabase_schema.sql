@@ -53,31 +53,84 @@ BEGIN
   END IF;
 END $$;
 
--- 3. Aktifkan Row Level Security (RLS)
+-- 3. Admin: hanya user yang terdaftar di tabel admins yang boleh mengubah / menghapus.
+-- Buat user di Authentication -> Users -> Add user, lalu jalankan SEKALI (ganti emailnya):
+--   INSERT INTO public.admins SELECT id FROM auth.users WHERE email = 'email-admin@contoh.com';
+CREATE TABLE IF NOT EXISTS public.admins (
+  user_id UUID PRIMARY KEY REFERENCES auth.users ON DELETE CASCADE
+);
+ALTER TABLE public.admins ENABLE ROW LEVEL SECURITY; -- tanpa policy: tidak bisa dibaca/diubah dari browser
+
+CREATE OR REPLACE FUNCTION public.is_admin() RETURNS BOOLEAN
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+  SELECT EXISTS (SELECT 1 FROM public.admins WHERE user_id = auth.uid());
+$$;
+
+-- 4. Row Level Security tabel memories
 ALTER TABLE public.memories ENABLE ROW LEVEL SECURITY;
 
--- 4. Buat Kebijakan Akses Publik (Anonim)
 -- Hapus policy lama agar tidak duplikat saat dijalankan berulang kali
 DROP POLICY IF EXISTS "Allow public read access" ON public.memories;
 DROP POLICY IF EXISTS "Allow public insert access" ON public.memories;
 DROP POLICY IF EXISTS "Allow public update access" ON public.memories;
 DROP POLICY IF EXISTS "Allow public delete access" ON public.memories;
+DROP POLICY IF EXISTS "Admin update access" ON public.memories;
+DROP POLICY IF EXISTS "Admin delete access" ON public.memories;
 
 -- Tamu dan admin dapat melihat seluruh kenangan foto
 CREATE POLICY "Allow public read access" ON public.memories
   FOR SELECT USING (true);
 
--- Tamu dapat mengunggah foto dan voice note baru
+-- Tamu dapat mengunggah kenangan baru, tapi tidak bisa memalsukan like atau pin
 CREATE POLICY "Allow public insert access" ON public.memories
-  FOR INSERT WITH CHECK (true);
+  FOR INSERT WITH CHECK (COALESCE(likes_count, 0) = 0 AND NOT COALESCE(is_pinned, false));
 
--- Tamu dan admin dapat memberikan like atau memperbarui status
-CREATE POLICY "Allow public update access" ON public.memories
-  FOR UPDATE USING (true);
+-- Hanya admin yang boleh pin / hapus
+CREATE POLICY "Admin update access" ON public.memories
+  FOR UPDATE USING (public.is_admin());
+CREATE POLICY "Admin delete access" ON public.memories
+  FOR DELETE USING (public.is_admin());
 
--- Admin dapat menghapus foto yang kurang pantas
-CREATE POLICY "Allow public delete access" ON public.memories
-  FOR DELETE USING (true);
+-- Like lewat fungsi atomik: tamu tidak butuh izin UPDATE, dan like bersamaan tidak saling menimpa
+CREATE OR REPLACE FUNCTION public.set_like(p_id TEXT, p_device TEXT, p_liked BOOLEAN) RETURNS VOID
+LANGUAGE sql SECURITY DEFINER SET search_path = public AS $$
+  UPDATE public.memories SET
+    liked_ips = CASE WHEN p_liked THEN COALESCE(liked_ips, '[]'::jsonb) || to_jsonb(p_device)
+                     ELSE COALESCE(liked_ips, '[]'::jsonb) - p_device END,
+    likes_count = GREATEST(0, COALESCE(likes_count, 0) + CASE WHEN p_liked THEN 1 ELSE -1 END)
+  WHERE id = p_id AND (COALESCE(liked_ips, '[]'::jsonb) ? p_device) <> p_liked;
+$$;
+GRANT EXECUTE ON FUNCTION public.set_like(TEXT, TEXT, BOOLEAN) TO anon, authenticated;
+
+-- 4b. Pengaturan pernikahan (nama, cover, lagu, template): satu baris, dibaca semua tamu
+CREATE TABLE IF NOT EXISTS public.app_settings (
+  id INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+  couple JSONB,
+  templates JSONB,
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+ALTER TABLE public.app_settings ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Settings public read" ON public.app_settings;
+DROP POLICY IF EXISTS "Settings admin insert" ON public.app_settings;
+DROP POLICY IF EXISTS "Settings admin update" ON public.app_settings;
+CREATE POLICY "Settings public read" ON public.app_settings FOR SELECT USING (true);
+CREATE POLICY "Settings admin insert" ON public.app_settings FOR INSERT WITH CHECK (public.is_admin());
+CREATE POLICY "Settings admin update" ON public.app_settings FOR UPDATE USING (public.is_admin());
+
+-- 4c. Storage untuk strip foto, voice note, cover, lagu & frame (hanya gambar/audio, maks 20MB)
+INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+VALUES ('media', 'media', true, 20971520, ARRAY['image/*', 'audio/*'])
+ON CONFLICT (id) DO UPDATE SET public = true, file_size_limit = 20971520,
+  allowed_mime_types = ARRAY['image/*', 'audio/*'];
+
+DROP POLICY IF EXISTS "Media guest upload" ON storage.objects;
+DROP POLICY IF EXISTS "Media admin all" ON storage.objects;
+-- Tamu hanya boleh menambah file baru di folder memories/ (tidak bisa menimpa / menghapus)
+CREATE POLICY "Media guest upload" ON storage.objects FOR INSERT TO anon, authenticated
+  WITH CHECK (bucket_id = 'media' AND (storage.foldername(name))[1] = 'memories');
+CREATE POLICY "Media admin all" ON storage.objects FOR ALL TO authenticated
+  USING (bucket_id = 'media' AND public.is_admin())
+  WITH CHECK (bucket_id = 'media' AND public.is_admin());
 
 -- 5. Aktifkan Supabase Realtime agar foto langsung muncul di HP lain & Layar Resepsi tanpa refresh
 DO $$

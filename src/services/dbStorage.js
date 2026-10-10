@@ -2,7 +2,6 @@
  * IndexedDB Persistent Storage Engine for Wedding Photobooth
  * Provides high-capacity, non-blocking local storage that never overflows browser quotas.
  */
-import { defaultWeddingData } from '../defaultData';
 
 const DB_NAME = 'wedding_photobooth_db';
 const DB_VERSION = 1;

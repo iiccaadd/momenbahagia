@@ -1,4 +1,3 @@
-import { defaultWeddingData } from '../defaultData';
 import {
   getAllMemoriesDB,
   saveMemoryDB,
@@ -7,13 +6,12 @@ import {
   clearAllMemoriesDB,
   isDummyMemory,
   onMemoryBroadcast
-} from './dbStorage';
+} from './dbStorage.js';
 import {
-  supabase,
-  isSupabaseConfigured,
   getSupabaseClient,
-  getSupabaseCredentials
-} from './supabaseClient';
+  getSupabaseCredentials,
+  uploadMedia
+} from './supabaseClient.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Device ID (used for per-device like tracking)
@@ -100,7 +98,7 @@ export function mergeMemories(localList = [], remoteList = []) {
   }
 
   const result = Array.from(map.values());
-  result.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+  result.sort((a, b) => (b.isPinned ? 1 : 0) - (a.isPinned ? 1 : 0) || new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
   return result;
 }
 
@@ -134,6 +132,7 @@ function rowToMemory(row) {
     frameColor: row.frame_color || row.frameColor || null,
     stickerOverlay: row.sticker_overlay || row.stickerOverlay || null,
     filterName: row.filter_name || row.filterName || null,
+    isPinned: Boolean(row.is_pinned ?? row.isPinned),
   };
 }
 
@@ -196,14 +195,6 @@ export async function fetchOnlineMemories() {
       if (!error && Array.isArray(data)) {
         remoteMemories = data.map(rowToMemory).filter(Boolean);
         isCloudConnected = true;
-
-        // Auto-purge dummy memories from cloud database in background
-        client
-          .from('memories')
-          .delete()
-          .or("id.eq.mem-1788501512659-ltcny3,id.eq.mem-1788501388351-gik73m")
-          .then(() => {})
-          .catch(() => {});
       } else if (error) {
         console.warn('[Sync] Supabase fetch error:', error.message);
         if (error.code === 'PGRST204' || error.message?.includes('guest_name') || error.code === '42P01') {
@@ -216,20 +207,6 @@ export async function fetchOnlineMemories() {
     }
   }
 
-  // 2. Also fetch from local Backend API if available (concurrently npm run server)
-  try {
-    const res = await fetch('/api/memories', { cache: 'no-store' });
-    if (res.ok) {
-      const json = await res.json();
-      if (json?.success && Array.isArray(json.data) && json.data.length > 0) {
-        const backendMems = json.data.map(rowToMemory).filter(Boolean);
-        remoteMemories = [...backendMems, ...remoteMemories];
-      }
-    }
-  } catch (e) {
-    // API server offline or not running (e.g. client-only mode)
-  }
-
   const combined = mergeMemories(localMemories, remoteMemories);
 
   if (combined.length > 0) {
@@ -239,8 +216,23 @@ export async function fetchOnlineMemories() {
   return { memories: combined, isCloudConnected, schemaError };
 }
 
+// Upload a data: URL (strip JPEG / voice note) to Storage and return its public URL,
+// so table rows stay small instead of carrying base64 to every guest phone.
+async function toStorageUrl(value) {
+  if (typeof value !== 'string' || !value.startsWith('data:')) return value;
+  try {
+    const blob = await (await fetch(value)).blob();
+    const ext = (blob.type.split('/')[1] || 'bin').split(';')[0];
+    return await uploadMedia('memories', blob, ext);
+  } catch (e) {
+    // Keep the inline data URL so the guest's photo is never lost (e.g. bucket not created yet)
+    console.warn('[Sync] Storage upload failed, saving inline:', e);
+    return value;
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
-// Save a new memory to BOTH Supabase (cloud), Backend API, and IndexedDB (local cache)
+// Save a new memory to Supabase (cloud) and IndexedDB (local cache)
 // ─────────────────────────────────────────────────────────────────────────────
 export async function saveMemoryOnline(newMemory) {
   if (!newMemory || !newMemory.id) return { success: false, error: 'Invalid memory' };
@@ -252,57 +244,23 @@ export async function saveMemoryOnline(newMemory) {
     console.warn('[Sync] IndexedDB save warning:', e);
   }
 
-  // 2. Send to local Backend API if running (Express + Socket.io)
-  try {
-    await fetch('/api/memories', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        guestName: newMemory.guestName,
-        guestMessage: newMemory.message || newMemory.guestMessage,
-        templateId: newMemory.templateId,
-        stripDataUrl: newMemory.stripImage || newMemory.stripUrl,
-        audioDataUrl: newMemory.audioUrl,
-        audioDuration: newMemory.audioDuration,
-      })
-    });
-  } catch (e) {
-    // Local server offline or hosted client-only
-  }
-
-  // 3. Upload to Supabase (cross-device cloud storage)
+  // 2. Upload to Supabase (cross-device cloud storage)
   const client = getSupabaseClient();
-  const creds = getSupabaseCredentials();
 
-  if (creds.isConfigured && client) {
+  if (client) {
     try {
-      const row = memoryToRow(newMemory);
+      const strip = await toStorageUrl(newMemory.stripImage || newMemory.stripUrl);
+      const audio = await toStorageUrl(newMemory.audioUrl);
+      const row = memoryToRow({ ...newMemory, stripImage: strip, stripUrl: strip, audioUrl: audio });
 
-      const { data, error } = await client
-        .from('memories')
-        .insert(row)
-        .select();
+      const { error } = await client.from('memories').insert(row);
 
-      if (error) {
-        // If conflict error (duplicate key), try update
-        if (error.code === '23505') {
-          const { error: updateErr } = await client
-            .from('memories')
-            .update(row)
-            .eq('id', row.id);
-
-          if (updateErr) {
-            console.error('[Sync] Supabase update error:', updateErr);
-            return { success: false, isCloudSaved: false, error: updateErr.message, code: updateErr.code };
-          }
-          return { success: true, isCloudSaved: true };
-        }
-
+      // 23505 = duplicate id: this memory was already saved by an earlier retry
+      if (error && error.code !== '23505') {
         console.error('[Sync] Supabase insert error:', error);
         return { success: false, isCloudSaved: false, error: error.message, code: error.code };
       }
 
-      console.log('[Sync] Memory saved to Supabase cloud successfully:', row.id);
       return { success: true, isCloudSaved: true };
     } catch (e) {
       console.error('[Sync] Supabase save exception:', e);
@@ -313,100 +271,86 @@ export async function saveMemoryOnline(newMemory) {
   return {
     success: true,
     isCloudSaved: false,
-    warning: 'Foto tersimpan secara lokal di perangkat ini. Hubungkan database Supabase di Admin Panel agar foto otomatis tersinkronisasi ke seluruh HP tamu.'
+    warning: 'Foto tersimpan secara lokal di perangkat ini. Set VITE_SUPABASE_URL dan VITE_SUPABASE_ANON_KEY agar foto tersinkronisasi ke seluruh HP tamu.'
   };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Toggle like/unlike — updates IndexedDB and Supabase
+// Like / unlike — atomic on the server (set_like RPC), so concurrent likes never overwrite each other
 // ─────────────────────────────────────────────────────────────────────────────
 export async function toggleLikeOnline(memoryId, isLiked) {
-  const deviceId = getDeviceId();
-
-  try {
-    const all = await getAllMemoriesDB();
-    const target = all.find((m) => m.id === memoryId);
-    if (!target) return;
-
-    if (!Array.isArray(target.likedIps)) target.likedIps = [];
-    const hasId = target.likedIps.includes(deviceId);
-
-    if (isLiked && !hasId) {
-      target.likedIps.push(deviceId);
-      target.likesCount = (target.likesCount || 0) + 1;
-    } else if (!isLiked && hasId) {
-      target.likedIps = target.likedIps.filter((id) => id !== deviceId);
-      target.likesCount = Math.max(0, (target.likesCount || 1) - 1);
-    }
-
-    await saveMemoryDB(target);
-
-    const client = getSupabaseClient();
-    const creds = getSupabaseCredentials();
-
-    if (creds.isConfigured && client) {
-      try {
-        await client
-          .from('memories')
-          .update({
-            liked_ips: target.likedIps,
-            likes_count: target.likesCount,
-          })
-          .eq('id', memoryId);
-      } catch (e) {
-        console.warn('[Sync] Like toggle Supabase error:', e);
-      }
-    }
-  } catch (e) {
-    console.warn('[Sync] Like toggle error:', e);
-  }
+  const client = getSupabaseClient();
+  if (!client) return;
+  const { error } = await client.rpc('set_like', { p_id: memoryId, p_device: getDeviceId(), p_liked: isLiked });
+  if (error) console.warn('[Sync] Like error:', error.message);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Delete a memory from Supabase and local IndexedDB
+// Admin actions. RLS silently skips rows a non-admin may not touch, so we check
+// the returned rows instead of trusting "no error".
 // ─────────────────────────────────────────────────────────────────────────────
+async function adminWrite(query) {
+  const { data, error } = await query.select('id');
+  if (error) return { success: false, error: error.message };
+  if (!data?.length) return { success: false, error: 'Ditolak: akun ini bukan admin atau data tidak ditemukan.' };
+  return { success: true };
+}
+
+export async function pinMemoryOnline(memoryId, isPinned) {
+  const client = getSupabaseClient();
+  if (!client) return { success: false, error: 'Supabase belum dikonfigurasi' };
+  return adminWrite(client.from('memories').update({ is_pinned: isPinned }).eq('id', memoryId));
+}
+
+// shortcut: deleting a memory leaves its strip/audio file in Storage; clean the bucket by hand if space runs out.
 export async function deleteMemoryOnline(memoryId) {
-  await deleteMemoryDB(memoryId);
-
   const client = getSupabaseClient();
-  const creds = getSupabaseCredentials();
-
-  if (creds.isConfigured && client) {
-    try {
-      await client.from('memories').delete().eq('id', memoryId);
-    } catch (e) {
-      console.warn('[Sync] Supabase delete error:', e);
-    }
+  if (!client) {
+    await deleteMemoryDB(memoryId);
+    return { success: true };
   }
+  const result = await adminWrite(client.from('memories').delete().eq('id', memoryId));
+  if (result.success) await deleteMemoryDB(memoryId);
+  return result;
+}
+
+export async function clearAllMemoriesOnline() {
+  const client = getSupabaseClient();
+  if (client) {
+    const { error } = await client.from('memories').delete().neq('id', '');
+    if (error) return { success: false, error: error.message };
+    // RLS skips rows silently for non-admins, so check the table is really empty
+    const { data } = await client.from('memories').select('id').limit(1);
+    if (data?.length) return { success: false, error: 'Ditolak: akun ini bukan admin.' };
+  }
+  await clearAllMemoriesDB();
+  return { success: true };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Clear ALL memories from Supabase, backend API, and local IndexedDB
+// Wedding settings (couple info + templates) — one shared row in app_settings
 // ─────────────────────────────────────────────────────────────────────────────
-export async function clearAllMemoriesOnline() {
-  // 1. Clear IndexedDB and LocalStorage
-  try {
-    await clearAllMemoriesDB();
-  } catch (e) {
-    console.warn('[Sync] clearAllMemoriesDB error:', e);
-  }
-
-  // 2. Call backend DELETE endpoint if server is available
-  try {
-    await fetch('/api/memories', { method: 'DELETE' });
-  } catch (e) {}
-
-  // 3. Clear Supabase table if configured
+export async function fetchSettingsOnline() {
   const client = getSupabaseClient();
-  const creds = getSupabaseCredentials();
-  if (creds.isConfigured && client) {
-    try {
-      await client.from('memories').delete().neq('id', '');
-    } catch (e) {
-      console.warn('[Sync] Supabase clear all error:', e);
-    }
+  if (!client) return null;
+  const { data, error } = await client.from('app_settings').select('couple, templates').eq('id', 1).maybeSingle();
+  if (error) {
+    console.warn('[Sync] Settings fetch error:', error.message);
+    return null;
   }
+  return data;
+}
 
+// patch: { couple } and/or { templates }
+export async function saveSettingsOnline(patch) {
+  const client = getSupabaseClient();
+  if (!client) return { success: false, error: 'Supabase belum dikonfigurasi' };
+  const { data, error } = await client
+    .from('app_settings')
+    .upsert({ id: 1, ...patch, updated_at: new Date().toISOString() })
+    .select('id');
+  if (error) return { success: false, error: error.message };
+  if (!data?.length) return { success: false, error: 'Ditolak: akun ini bukan admin.' };
   return { success: true };
 }
 
@@ -544,23 +488,10 @@ export function subscribeToMemories(callbacks = {}) {
 
   connectRealtime();
 
-  // Dengar perubahan kredensial jika user menyimpan di Admin Panel
-  const onConfigChanged = () => {
-    console.log('[Realtime] Supabase config changed, reconnecting...');
-    connectRealtime();
-  };
-
-  if (typeof window !== 'undefined') {
-    window.addEventListener('wedding-cloud-sync-changed', onConfigChanged);
-  }
-
   return () => {
     const client = getSupabaseClient();
     if (activeChannel && client) {
       client.removeChannel(activeChannel);
-    }
-    if (typeof window !== 'undefined') {
-      window.removeEventListener('wedding-cloud-sync-changed', onConfigChanged);
     }
   };
 }

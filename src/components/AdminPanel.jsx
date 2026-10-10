@@ -41,77 +41,13 @@ import { renderPhotostrip } from '../utils/canvasExport';
 import { useNotify } from '../context/NotificationContext';
 import {
   getSupabaseCredentials,
-  saveSupabaseCredentials,
-  clearCustomSupabaseCredentials,
   testSupabaseConnection,
+  uploadMedia,
 } from '../services/supabaseClient';
+import { saveSettingsOnline } from '../services/cloudSync';
+import SUPABASE_SCHEMA_SQL from '../../supabase_schema.sql?raw';
 
-const SUPABASE_SCHEMA_SQL = `-- ==============================================================================
--- 1. Buat Tabel memories jika belum ada
--- ==============================================================================
-CREATE TABLE IF NOT EXISTS public.memories (
-  id TEXT PRIMARY KEY,
-  guest_name TEXT NOT NULL DEFAULT 'Tamu Spesial',
-  message TEXT DEFAULT '',
-  strip_image TEXT,
-  strip_url TEXT,
-  audio_url TEXT,
-  audio_duration INTEGER DEFAULT 0,
-  gallery_photos JSONB DEFAULT '[]'::jsonb,
-  liked_ips JSONB DEFAULT '[]'::jsonb,
-  likes_count INTEGER DEFAULT 0,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  template_id TEXT DEFAULT 'classic',
-  frame_color TEXT,
-  sticker_overlay TEXT,
-  filter_name TEXT,
-  is_pinned BOOLEAN DEFAULT false
-);
-
--- 2. Pastikan kolom audio & strip tersedia jika tabel sudah pernah dibuat sebelumnya
-DO $$
-BEGIN
-  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='memories' AND column_name='audio_url') THEN
-    ALTER TABLE public.memories ADD COLUMN audio_url TEXT;
-  END IF;
-  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='memories' AND column_name='audio_duration') THEN
-    ALTER TABLE public.memories ADD COLUMN audio_duration INTEGER DEFAULT 0;
-  END IF;
-  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='memories' AND column_name='strip_url') THEN
-    ALTER TABLE public.memories ADD COLUMN strip_url TEXT;
-  END IF;
-  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='memories' AND column_name='strip_image') THEN
-    ALTER TABLE public.memories ADD COLUMN strip_image TEXT;
-  END IF;
-END $$;
-
--- 3. Aktifkan Row Level Security (RLS) & Berikan Izin Akses Publik
-ALTER TABLE public.memories ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "Allow public read access" ON public.memories;
-DROP POLICY IF EXISTS "Allow public insert access" ON public.memories;
-DROP POLICY IF EXISTS "Allow public update access" ON public.memories;
-DROP POLICY IF EXISTS "Allow public delete access" ON public.memories;
-
-CREATE POLICY "Allow public read access" ON public.memories FOR SELECT USING (true);
-CREATE POLICY "Allow public insert access" ON public.memories FOR INSERT WITH CHECK (true);
-CREATE POLICY "Allow public update access" ON public.memories FOR UPDATE USING (true);
-CREATE POLICY "Allow public delete access" ON public.memories FOR DELETE USING (true);
-
--- 4. Aktifkan Supabase Realtime untuk sinkronisasi antar HP tanpa refresh
-DO $$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_publication_tables 
-    WHERE pubname = 'supabase_realtime' AND tablename = 'memories'
-  ) THEN
-    ALTER PUBLICATION supabase_realtime ADD TABLE public.memories;
-  END IF;
-EXCEPTION WHEN OTHERS THEN NULL;
-END $$;
-
--- 5. Aktifkan REPLICA IDENTITY FULL agar kolom foto selalu disertakan di Supabase Realtime
-ALTER TABLE public.memories REPLICA IDENTITY FULL;`;
-
+const fileExt = (file) => (file.name.split('.').pop() || 'bin').toLowerCase();
 
 export default function AdminPanel({
   weddingSettings,
@@ -147,16 +83,11 @@ export default function AdminPanel({
   const [activeAudioId, setActiveAudioId] = useState(null);
 
   // Cloud Sync Configuration State
-  const initialCreds = getSupabaseCredentials();
-  const [cloudUrl, setCloudUrl] = useState(initialCreds.url || '');
-  const [cloudKey, setCloudKey] = useState(initialCreds.key || '');
-  const [cloudStatus, setCloudStatus] = useState(initialCreds);
+  const cloudStatus = getSupabaseCredentials();
   const [isTestingCloud, setIsTestingCloud] = useState(false);
   const [testResult, setTestResult] = useState(null);
-  const [cloudSaveMsg, setCloudSaveMsg] = useState('');
   const [copiedSql, setCopiedSql] = useState(false);
   const [copiedGuestLink, setCopiedGuestLink] = useState(false);
-  const [includeCloudInQr, setIncludeCloudInQr] = useState(true);
   const [guestLinkUrl, setGuestLinkUrl] = useState('');
   
   // Custom Template Modal State
@@ -214,16 +145,7 @@ export default function AdminPanel({
           origin += window.location.pathname;
         }
 
-        const creds = getSupabaseCredentials();
-        let targetUrl = origin;
-
-        if (includeCloudInQr && creds.isConfigured && creds.source === 'local') {
-          const params = new URLSearchParams();
-          params.set('sb_url', creds.url);
-          params.set('sb_key', creds.key);
-          targetUrl = `${origin}?${params.toString()}`;
-        }
-
+        const targetUrl = origin;
         setGuestLinkUrl(targetUrl);
 
         const qrData = await QRCode.toDataURL(targetUrl, {
@@ -241,7 +163,7 @@ export default function AdminPanel({
     };
 
     generateQr();
-  }, [includeCloudInQr, cloudStatus.url, cloudStatus.key]);
+  }, []);
 
   // Update Live Preview Canvas for Custom Template
   useEffect(() => {
@@ -289,24 +211,30 @@ export default function AdminPanel({
     }));
   };
 
+  // Saves couple info to the shared app_settings row so every guest phone sees it
+  const saveCouple = async (couple) => {
+    const merged = { ...weddingSettings?.couple, ...couple };
+    const result = await saveSettingsOnline({ couple: merged });
+    if (!result.success) throw new Error(result.error);
+    if (onUpdateCouple) onUpdateCouple(merged);
+  };
+
+  const saveTemplates = async (nextTemplates) => {
+    const result = await saveSettingsOnline({ templates: nextTemplates });
+    if (!result.success) throw new Error(result.error);
+    if (onUpdateTemplates) onUpdateTemplates(nextTemplates);
+  };
+
   const handleSaveSettings = async (e) => {
     e?.preventDefault();
     setIsSaving(true);
     try {
-      const res = await fetch('/api/settings', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData),
-      });
-      const json = await res.json();
-      if (json.success) {
-        setSaveSuccess(true);
-        if (onUpdateCouple) onUpdateCouple(formData);
-        setTimeout(() => setSaveSuccess(false), 3000);
-      }
+      await saveCouple(formData);
+      setSaveSuccess(true);
+      setTimeout(() => setSaveSuccess(false), 3000);
     } catch (err) {
       console.error('Error updating settings:', err);
-      notify.error('Gagal menyimpan pengaturan ke server.');
+      notify.error(`Gagal menyimpan pengaturan: ${err.message}`);
     } finally {
       setIsSaving(false);
     }
@@ -315,53 +243,34 @@ export default function AdminPanel({
   const handleUploadCover = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const body = new FormData();
-    body.append('cover', file);
 
     try {
-      const res = await fetch('/api/upload/cover', {
-        method: 'POST',
-        body: body,
-      });
-      const json = await res.json();
-      if (json.success && json.url) {
-        setFormData((prev) => ({ ...prev, heroImage: json.url }));
-        setSaveSuccess(true);
-        notify.success('Foto sampul berhasil diperbarui!');
-        setTimeout(() => setSaveSuccess(false), 2000);
-      }
+      const url = await uploadMedia('admin', file, fileExt(file));
+      setFormData((prev) => ({ ...prev, heroImage: url }));
+      await saveCouple({ ...formData, heroImage: url });
+      setSaveSuccess(true);
+      notify.success('Foto sampul berhasil diperbarui!');
+      setTimeout(() => setSaveSuccess(false), 2000);
     } catch (err) {
       console.error('Error uploading cover:', err);
-      notify.error('Gagal mengunggah foto sampul.');
+      notify.error(`Gagal mengunggah foto sampul: ${err.message}`);
     }
   };
 
   const handleUploadBgm = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const body = new FormData();
-    body.append('audio', file);
-    body.append('title', file.name);
 
     try {
-      const res = await fetch('/api/upload/bgm', {
-        method: 'POST',
-        body: body,
-      });
-      const json = await res.json();
-      if (json.success && json.url) {
-        setFormData((prev) => ({
-          ...prev,
-          bgmUrl: json.url,
-          bgmTitle: json.title || file.name,
-        }));
-        setSaveSuccess(true);
-        notify.success('Lagu latar berhasil diunggah!');
-        setTimeout(() => setSaveSuccess(false), 2000);
-      }
+      const url = await uploadMedia('admin', file, fileExt(file));
+      setFormData((prev) => ({ ...prev, bgmUrl: url, bgmTitle: file.name }));
+      await saveCouple({ ...formData, bgmUrl: url, bgmTitle: file.name });
+      setSaveSuccess(true);
+      notify.success('Lagu latar berhasil diunggah!');
+      setTimeout(() => setSaveSuccess(false), 2000);
     } catch (err) {
       console.error('Error uploading BGM:', err);
-      notify.error('Gagal mengunggah lagu pernikahan.');
+      notify.error(`Gagal mengunggah lagu pernikahan: ${err.message}`);
     }
   };
 
@@ -370,28 +279,18 @@ export default function AdminPanel({
     const file = e.target.files?.[0];
     if (!file) return;
     setIsUploadingFrame(true);
-    const body = new FormData();
-    body.append('frame', file);
 
     try {
-      const res = await fetch('/api/upload/template', {
-        method: 'POST',
-        body: body,
-      });
-      const json = await res.json();
-      if (json.success && json.url) {
-        setCustomTplForm((prev) => ({
-          ...prev,
-          customFrameUrl: json.url,
-          name: prev.name === 'Custom Wedding Frame' ? file.name.replace(/\.[^/.]+$/, "") : prev.name
-        }));
-        notify.success('Frame template berhasil diunggah!');
-      } else {
-        notify.error('Gagal mengunggah template: ' + (json.message || 'Error'));
-      }
+      const url = await uploadMedia('admin', file, fileExt(file));
+      setCustomTplForm((prev) => ({
+        ...prev,
+        customFrameUrl: url,
+        name: prev.name === 'Custom Wedding Frame' ? file.name.replace(/\.[^/.]+$/, "") : prev.name
+      }));
+      notify.success('Frame template berhasil diunggah!');
     } catch (err) {
       console.error('Error uploading template file:', err);
-      notify.error('Gagal mengunggah template frame.');
+      notify.error(`Gagal mengunggah template frame: ${err.message}`);
     } finally {
       setIsUploadingFrame(false);
     }
@@ -403,28 +302,45 @@ export default function AdminPanel({
       return;
     }
 
+    const tpl = customTplForm;
+    const slots = Number(tpl.slotCount) || 3;
+    const uniqueSuffix = Date.now().toString(36) + '-' + Math.random().toString(36).substring(2, 7);
+    const newTpl = {
+      id: tpl.id && !tpl.id.startsWith('custom-tpl-') ? `${tpl.id}-${uniqueSuffix}` : `custom-tpl-${uniqueSuffix}`,
+      name: tpl.name,
+      category: tpl.category || (slots === 1 ? "Polaroid (1 Foto)" : slots === 2 ? "4R (2 Foto)" : "Strip (3 Foto)"),
+      theme: tpl.theme || "light",
+      bgColor: tpl.bgColor || "#ffffff",
+      textColor: tpl.textColor || "#333333",
+      accentColor: tpl.accentColor || "#c5a880",
+      frameBorderColor: tpl.frameBorderColor || "#e8dfd5",
+      customFrameUrl: tpl.customFrameUrl || null,
+      frameMode: tpl.frameMode || "background",
+      slotCount: slots,
+      slots: tpl.slots || null,
+      startX: tpl.startX ?? 42,
+      startY: tpl.startY ?? (tpl.showText ? 195 : 140),
+      frameWidth: tpl.frameWidth ?? 516,
+      frameHeight: tpl.frameHeight ?? (slots === 1 ? 950 : slots === 2 ? 620 : 360),
+      gapY: tpl.gapY ?? (slots === 1 ? 0 : slots === 2 ? 50 : 32),
+      borderRadius: tpl.borderRadius ?? 8,
+      topTitle: tpl.topTitle || "HAPPY",
+      mainScript: tpl.mainScript || "Wedding Day",
+      footerNames: tpl.footerNames || formData.displayNames,
+      footerDate: tpl.footerDate || formData.formattedDate,
+      showText: tpl.showText !== false,
+      isCustom: true,
+    };
+
     try {
-      const res = await fetch('/api/templates', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(customTplForm),
-      });
-      const json = await res.json();
-      if (json.success) {
-        setIsTemplateModalOpen(false);
-        setSaveSuccess(true);
-        notify.success('Template kustom berhasil disimpan!');
-        const allTemplatesRes = await fetch('/api/templates').then(r => r.json());
-        if (allTemplatesRes.success && onUpdateTemplates) {
-          onUpdateTemplates(allTemplatesRes.data);
-        }
-        setTimeout(() => setSaveSuccess(false), 3000);
-      } else {
-        notify.error('Gagal menyimpan template: ' + (json.error || 'Terjadi kesalahan'));
-      }
+      await saveTemplates([newTpl, ...templates]);
+      setIsTemplateModalOpen(false);
+      setSaveSuccess(true);
+      notify.success('Template kustom berhasil disimpan!');
+      setTimeout(() => setSaveSuccess(false), 3000);
     } catch (err) {
       console.error('Error creating template:', err);
-      notify.error('Gagal menyimpan template.');
+      notify.error(`Gagal menyimpan template: ${err.message}`);
     }
   };
 
@@ -438,21 +354,13 @@ export default function AdminPanel({
     if (!confirmed) return;
 
     try {
-      const res = await fetch(`/api/templates/${templateId}`, {
-        method: 'DELETE',
-      });
-      const json = await res.json();
-      if (json.success) {
-        setSaveSuccess(true);
-        notify.success('Template berhasil dihapus.');
-        const allTemplatesRes = await fetch('/api/templates').then(r => r.json());
-        if (allTemplatesRes.success && onUpdateTemplates) {
-          onUpdateTemplates(allTemplatesRes.data);
-        }
-        setTimeout(() => setSaveSuccess(false), 2000);
-      }
+      await saveTemplates(templates.filter((t) => t.id !== templateId));
+      setSaveSuccess(true);
+      notify.success('Template berhasil dihapus.');
+      setTimeout(() => setSaveSuccess(false), 2000);
     } catch (err) {
       console.error('Error deleting template:', err);
+      notify.error(`Gagal menghapus template: ${err.message}`);
     }
   };
 
@@ -473,7 +381,7 @@ export default function AdminPanel({
     setIsTestingCloud(true);
     setTestResult(null);
     try {
-      const res = await testSupabaseConnection(cloudUrl, cloudKey);
+      const res = await testSupabaseConnection();
       setTestResult(res);
       if (res.success) {
         notify.success('Koneksi ke Supabase berhasil! Tabel "memories" aktif.');
@@ -486,31 +394,6 @@ export default function AdminPanel({
     } finally {
       setIsTestingCloud(false);
     }
-  };
-
-  const handleSaveCloudConfig = (e) => {
-    e?.preventDefault();
-    const success = saveSupabaseCredentials(cloudUrl, cloudKey);
-    if (success) {
-      setCloudStatus(getSupabaseCredentials());
-      setCloudSaveMsg('Pengaturan Cloud berhasil disimpan dan diterapkan!');
-      notify.success('Pengaturan Cloud Supabase berhasil disimpan!');
-      setTimeout(() => setCloudSaveMsg(''), 4000);
-    } else {
-      notify.error('Mohon isi URL dan Anon Key dengan benar.');
-    }
-  };
-
-  const handleResetCloudConfig = () => {
-    clearCustomSupabaseCredentials();
-    const fresh = getSupabaseCredentials();
-    setCloudUrl(fresh.url);
-    setCloudKey(fresh.key);
-    setCloudStatus(fresh);
-    setTestResult(null);
-    setCloudSaveMsg('Kredensial kustom direset ke default.');
-    notify.info('Kredensial kustom telah dihapus.');
-    setTimeout(() => setCloudSaveMsg(''), 3000);
   };
 
   const handleCopySql = () => {
@@ -1214,87 +1097,6 @@ export default function AdminPanel({
               )}
             </div>
 
-            {/* Form Kredensial Supabase */}
-            <div className="bg-white rounded-3xl p-6 border border-[#e8dfd5] shadow-sm space-y-5">
-              <div className="flex items-center justify-between border-b border-[#f1ede8] pb-3">
-                <h4 className="font-serif-elegant font-bold text-base text-[#3a2c1f] flex items-center gap-2">
-                  <Key className="w-4 h-4 text-[#c5a880]" />
-                  Konfigurasi Kredensial Supabase
-                </h4>
-                {cloudStatus.source === 'local' && (
-                  <button
-                    type="button"
-                    onClick={handleResetCloudConfig}
-                    className="text-xs text-rose-600 hover:underline font-semibold"
-                  >
-                    Reset Kredensial Kustom
-                  </button>
-                )}
-              </div>
-
-              {cloudSaveMsg && (
-                <div className="p-3.5 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-semibold flex items-center gap-2">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                  {cloudSaveMsg}
-                </div>
-              )}
-
-              <form onSubmit={handleSaveCloudConfig} className="space-y-4">
-                <div>
-                  <label className="text-xs font-semibold text-[#7a6b5d] block mb-1">
-                    Supabase Project URL
-                  </label>
-                  <input
-                    type="url"
-                    placeholder="https://your-project-id.supabase.co"
-                    value={cloudUrl}
-                    onChange={(e) => setCloudUrl(e.target.value)}
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-[#e8dfd5] text-xs sm:text-sm font-mono focus:ring-2 focus:ring-[#c5a880] focus:outline-none"
-                    required
-                  />
-                  <span className="text-[11px] text-[#8c7b6d] mt-1 block">
-                    Dapatkan dari Dashboard Supabase → Project Settings → Configuration → API → Project URL.
-                  </span>
-                </div>
-
-                <div>
-                  <label className="text-xs font-semibold text-[#7a6b5d] block mb-1">
-                    Supabase Anon Public API Key
-                  </label>
-                  <textarea
-                    rows={2}
-                    placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
-                    value={cloudKey}
-                    onChange={(e) => setCloudKey(e.target.value)}
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-[#e8dfd5] text-xs font-mono focus:ring-2 focus:ring-[#c5a880] focus:outline-none resize-none"
-                    required
-                  />
-                  <span className="text-[11px] text-[#8c7b6d] mt-1 block">
-                    Dapatkan dari Dashboard Supabase → Project Settings → Configuration → API → Project API Keys (anon public).
-                  </span>
-                </div>
-
-                <div className="flex flex-wrap items-center gap-3 pt-2">
-                  <button
-                    type="submit"
-                    className="px-6 py-2.5 rounded-xl bg-[#c5a880] hover:bg-[#a8895b] text-white font-bold text-xs shadow-md transition-all flex items-center gap-2"
-                  >
-                    <Save className="w-4 h-4" /> Simpan Pengaturan Cloud
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={handleTestConnection}
-                    disabled={isTestingCloud}
-                    className="px-4 py-2.5 rounded-xl bg-[#f4ede4] hover:bg-[#e8dfd5] text-[#5e4b3c] font-semibold text-xs transition-all flex items-center gap-1.5"
-                  >
-                    <RefreshCw className={`w-3.5 h-3.5 ${isTestingCloud ? 'animate-spin' : ''}`} />
-                    Tes Koneksi
-                  </button>
-                </div>
-              </form>
-            </div>
-
             {/* SQL Schema Copy Section */}
             <div className="bg-white rounded-3xl p-6 border border-[#e8dfd5] shadow-sm space-y-4">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#f1ede8] pb-3">
@@ -1304,7 +1106,7 @@ export default function AdminPanel({
                     Script SQL Skema Database Supabase
                   </h4>
                   <p className="text-xs text-[#7a6b5d] mt-0.5">
-                    Jalankan script ini di menu SQL Editor Supabase untuk membuat tabel dan mengaktifkan izin publik.
+                    Jalankan script ini di menu SQL Editor Supabase untuk membuat tabel, storage, dan izin akses (tamu hanya bisa menambah, admin bisa mengubah/menghapus).
                   </p>
                 </div>
 
@@ -1361,9 +1163,9 @@ export default function AdminPanel({
                 </div>
                 <div className="bg-white p-4 rounded-2xl border border-[#e8dfd5] space-y-2">
                   <span className="w-6 h-6 rounded-full bg-[#c5a880] text-white font-bold flex items-center justify-center text-xs">3</span>
-                  <h5 className="font-bold text-[#3a2c1f]">Masukkan Kredensial</h5>
+                  <h5 className="font-bold text-[#3a2c1f]">Kredensial &amp; Admin</h5>
                   <p className="text-[11px] text-[#7a6b5d] leading-relaxed">
-                    Buka <strong>Project Settings → API</strong>, salin URL & Anon Key, lalu tempelkan ke form di atas atau masukkan ke Environment Variables Vercel!
+                    Buka <strong>Project Settings → API</strong>, salin URL & Anon Key, lalu masukkan sebagai <code>VITE_SUPABASE_URL</code> &amp; <code>VITE_SUPABASE_ANON_KEY</code> di Environment Variables Vercel, lalu deploy ulang. Buat user admin di <strong>Authentication → Users</strong> dan daftarkan lewat perintah di bagian 3 script SQL.
                   </p>
                 </div>
               </div>
@@ -1398,22 +1200,6 @@ export default function AdminPanel({
             <div className="font-script text-2xl text-[#c5a880]">
               {formData.displayNames}
             </div>
-
-            {/* Smart Cloud Pairing Toggle */}
-            {cloudStatus.isConfigured && cloudStatus.source === 'local' && (
-              <div className="p-3.5 bg-amber-50 rounded-2xl border border-amber-200 text-left flex items-start gap-2.5">
-                <input
-                  type="checkbox"
-                  id="includeCloudInQr"
-                  checked={includeCloudInQr}
-                  onChange={(e) => setIncludeCloudInQr(e.target.checked)}
-                  className="mt-0.5 rounded text-[#c5a880] focus:ring-[#c5a880]"
-                />
-                <label htmlFor="includeCloudInQr" className="text-[11px] text-[#5e4b3c] leading-tight cursor-pointer">
-                  <strong>Sertakan Kunci Cloud di QR Code & Link</strong>: HP tamu yang memindai QR code ini akan otomatis tersambung ke database Supabase Anda tanpa konfigurasi manual!
-                </label>
-              </div>
-            )}
 
             {/* Guest Link URL Copy */}
             <div className="p-3.5 bg-[#faf8f5] rounded-2xl border border-[#e8dfd5] text-left space-y-1.5">
