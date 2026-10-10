@@ -17,18 +17,36 @@ export default function AdminLogin({ onLoginSuccess, onCancel, couple = {} }) {
       return;
     }
     setIsLoading(true);
+    try {
+      const { error } = await supabase.auth.signInWithPassword({ email: username.trim(), password });
+      if (error) {
+        setErrorMsg(
+          error.message.includes('Email not confirmed')
+            ? 'Email admin belum dikonfirmasi. Di Supabase: Authentication → Users → konfirmasi user ini.'
+            : error.message.includes('Invalid login credentials')
+              ? 'Email atau password tidak sesuai.'
+              : `Login gagal: ${error.message}`
+        );
+        return;
+      }
 
-    const { error } = await supabase.auth.signInWithPassword({ email: username.trim(), password });
-    // A valid account that is not in the admins table cannot change anything (RLS), so refuse it here too
-    const { data: isAdmin } = error ? { data: false } : await supabase.rpc('is_admin');
-    setIsLoading(false);
-
-    if (error || !isAdmin) {
-      if (!error) await supabase.auth.signOut();
-      setErrorMsg('Email atau password tidak sesuai. Akses khusus pengantin / panitia.');
-      return;
+      // A valid account that is not in the admins table cannot change anything (RLS), so refuse it here too
+      const { data: isAdmin, error: rpcError } = await supabase.rpc('is_admin');
+      if (rpcError || !isAdmin) {
+        await supabase.auth.signOut();
+        setErrorMsg(
+          rpcError
+            ? `Fungsi is_admin tidak ditemukan (${rpcError.message}). Jalankan ulang supabase_schema.sql di SQL Editor.`
+            : 'Akun ini belum terdaftar sebagai admin. Jalankan: INSERT INTO public.admins SELECT id FROM auth.users WHERE email = \'email-anda\';'
+        );
+        return;
+      }
+      onLoginSuccess();
+    } catch (err) {
+      setErrorMsg(`Tidak bisa menghubungi Supabase: ${err.message}`);
+    } finally {
+      setIsLoading(false);
     }
-    onLoginSuccess();
   };
 
   return (
