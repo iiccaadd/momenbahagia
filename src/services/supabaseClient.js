@@ -39,7 +39,8 @@ export async function uploadMedia(folder, blob, ext) {
   const path = `${folder}/${Date.now()}-${Math.random().toString(36).substring(2, 9)}.${ext}`;
   // Bucket membatasi tipe file; parameter seperti ";codecs=opus" dibuang agar cocok.
   const contentType = (blob.type || '').split(';')[0] || undefined;
-  const { error } = await client.storage.from('media').upload(path, blob, { contentType, upsert: false });
+  // File names are unique and never overwritten, so browsers may cache them for a year (saves egress quota)
+  const { error } = await client.storage.from('media').upload(path, blob, { contentType, upsert: false, cacheControl: '31536000' });
   if (error) throw error;
   return client.storage.from('media').getPublicUrl(path).data.publicUrl;
 }

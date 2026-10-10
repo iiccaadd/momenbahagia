@@ -145,6 +145,7 @@ export default function ExploreMemories({
                         <img
                           src={stripSrc}
                           alt={m.guestName}
+                          loading="lazy"
                           onError={(e) => {
                             console.warn('[Explore] Gagal memuat foto kenangan:', m.guestName, stripSrc?.substring(0, 40));
                             e.target.style.display = 'none';

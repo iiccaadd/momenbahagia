@@ -303,8 +303,12 @@ export async function compressBase64Image(dataUrl, maxWidth = 450, quality = 0.7
         ctx.fillRect(0, 0, w, h);
         ctx.drawImage(img, 0, 0, w, h);
 
-        const compressed = canvas.toDataURL('image/jpeg', quality);
-        if (compressed && compressed.startsWith('data:image/jpeg') && compressed.length > 500) {
+        // WebP is ~25-35% smaller than JPEG at the same quality setting. Safari cannot encode
+        // WebP (it returns PNG), so fall back to JPEG there.
+        const webp = canvas.toDataURL('image/webp', quality);
+        const compressed = webp.startsWith('data:image/webp') ? webp : canvas.toDataURL('image/jpeg', quality);
+        // Never replace the original with a bigger file
+        if (compressed && compressed.length > 500 && compressed.length < dataUrl.length) {
           resolve(compressed);
         } else {
           resolve(dataUrl);

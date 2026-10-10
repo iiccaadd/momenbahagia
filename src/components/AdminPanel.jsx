@@ -253,7 +253,7 @@ export default function AdminPanel({
         reader.readAsDataURL(file);
       });
       const blob = await (await fetch(await compressBase64Image(original, 1600, 0.82))).blob();
-      const url = await uploadMedia('admin', blob, blob.type === 'image/jpeg' ? 'jpg' : fileExt(file));
+      const url = await uploadMedia('admin', blob, blob.type === file.type ? fileExt(file) : blob.type.split('/')[1]);
       setFormData((prev) => ({ ...prev, heroImage: url }));
       await saveCouple({ ...formData, heroImage: url });
       setSaveSuccess(true);
@@ -830,6 +830,7 @@ export default function AdminPanel({
                         <img
                           src={m.stripImage || m.stripUrl}
                           alt={m.guestName}
+                          loading="lazy"
                           className="max-h-[220px] w-auto rounded-lg object-contain"
                         />
                       </div>
