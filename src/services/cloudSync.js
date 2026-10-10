@@ -231,11 +231,33 @@ async function toStorageUrl(value) {
   }
 }
 
+// Optional backup copy of each guest upload into the couple's Google Drive (google-apps-script/Code.gs).
+// Fire-and-forget: a Drive problem never blocks or fails the guest's upload.
+function backupToDrive(mem) {
+  const url = (import.meta.env || {}).VITE_GDRIVE_BACKUP_URL;
+  if (!url) return;
+  const base = `${mem.createdAt || new Date().toISOString()} ${mem.guestName || 'Tamu'}`.replace(/[:.]/g, '-');
+  const files = [
+    { name: `${base} foto`, dataUrl: mem.stripImage || mem.stripUrl },
+    { name: `${base} suara`, dataUrl: mem.audioUrl },
+  ].filter((f) => typeof f.dataUrl === 'string' && f.dataUrl.startsWith('data:'));
+  if (!files.length) return;
+  // no-cors + text/plain: Apps Script cannot answer a CORS preflight; the reply is unreadable but the file is saved
+  fetch(url, {
+    method: 'POST',
+    mode: 'no-cors',
+    headers: { 'Content-Type': 'text/plain' },
+    body: JSON.stringify({ files, description: `${mem.guestName || 'Tamu'}: ${mem.message || mem.guestMessage || ''}` }),
+  }).catch((e) => console.warn('[Drive] Backup failed:', e));
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Save a new memory to Supabase (cloud) and IndexedDB (local cache)
 // ─────────────────────────────────────────────────────────────────────────────
 export async function saveMemoryOnline(newMemory) {
   if (!newMemory || !newMemory.id) return { success: false, error: 'Invalid memory' };
+
+  backupToDrive(newMemory);
 
   // 1. Save to IndexedDB immediately (instant offline cache)
   try {
