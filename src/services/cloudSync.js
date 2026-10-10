@@ -104,6 +104,10 @@ export function mergeMemories(localList = [], remoteList = []) {
   return result;
 }
 
+// Everything the UI shows; liked_ips is left out because it grows with every like and
+// would be downloaded by every guest on every sync.
+const MEMORY_COLUMNS = 'id,guest_name,message,strip_image,strip_url,audio_url,audio_duration,likes_count,created_at,template_id,frame_color,sticker_overlay,filter_name,is_pinned';
+
 // Map database / backend row -> app memory object
 function rowToMemory(row) {
   if (!row || isDummyMemory(row)) return null;
@@ -159,7 +163,7 @@ function memoryToRow(mem) {
     gallery_photos: [], // keep cloud payload lightweight (<120KB) so Realtime WebSocket and network never drop image
     liked_ips: Array.isArray(mem.likedIps) ? mem.likedIps : (mem.liked_ips || []),
     likes_count: Number(mem.likesCount || mem.likes_count || 0),
-    created_at: mem.createdAt || mem.created_at || new Date().toISOString(),
+    // created_at is left to the database clock: guest phones with a wrong clock would mis-sort photos
     template_id: mem.templateId || mem.template_id || 'classic',
     frame_color: mem.frameColor || mem.frame_color || null,
     sticker_overlay: mem.stickerOverlay || mem.sticker_overlay || null,
@@ -190,7 +194,7 @@ export async function fetchOnlineMemories() {
     try {
       const { data, error } = await client
         .from('memories')
-        .select('*')
+        .select(MEMORY_COLUMNS)
         .order('created_at', { ascending: false })
         .limit(300);
 
@@ -209,7 +213,16 @@ export async function fetchOnlineMemories() {
     }
   }
 
-  const combined = mergeMemories(localMemories, remoteMemories);
+  // Online, the cloud is the truth: the local cache only adds this phone's not-yet-uploaded photos.
+  // (Merging the whole cache kept photos the admin had deleted visible forever.)
+  let localToShow = localMemories;
+  if (isCloudConnected) {
+    const remoteIds = new Set(remoteMemories.map((m) => m.id));
+    localToShow = localMemories.filter((m) => m.pendingUpload && !remoteIds.has(m.id));
+    // Re-send photos that failed to upload (e.g. venue Wi-Fi dropped) now that the cloud is reachable
+    localToShow.forEach(uploadOnce);
+  }
+  const combined = mergeMemories(localToShow, remoteMemories);
 
   if (combined.length > 0) {
     saveBulkMemoriesDB(combined).catch(() => {});
@@ -235,8 +248,12 @@ async function toStorageUrl(value) {
 
 // Optional backup copy of each guest upload into the couple's Google Drive (google-apps-script/Code.gs).
 // Fire-and-forget: a Drive problem never blocks or fails the guest's upload.
+const DEFAULT_GDRIVE_BACKUP_URL = 'https://script.google.com/macros/s/AKfycbyZ2t0BB4onNtOHQNZ7Ni-n1I1nVuxZAlP39-6o-vUHEECZ1BLsqc9_lPk5-FLiMd33nA/exec';
+
 function backupToDrive(mem) {
-  const url = (import.meta.env || {}).VITE_GDRIVE_BACKUP_URL;
+  const env = import.meta.env || {};
+  // Only in the browser build (not tests); the env var can override the default script
+  const url = env.VITE_GDRIVE_BACKUP_URL || (env.PROD ? DEFAULT_GDRIVE_BACKUP_URL : '');
   if (!url) return;
   const base = `${mem.createdAt || new Date().toISOString()} ${mem.guestName || 'Tamu'}`.replace(/[:.]/g, '-');
   const files = [
@@ -261,44 +278,54 @@ export async function saveMemoryOnline(newMemory) {
 
   backupToDrive(newMemory);
 
-  // 1. Save to IndexedDB immediately (instant offline cache)
+  // 1. Save to IndexedDB immediately, marked pending until the cloud has it (offline safety net)
   try {
-    await saveMemoryDB(newMemory);
+    await saveMemoryDB({ ...newMemory, pendingUpload: true });
   } catch (e) {
     console.warn('[Sync] IndexedDB save warning:', e);
   }
 
   // 2. Upload to Supabase (cross-device cloud storage)
-  const client = getSupabaseClient();
-
-  if (client) {
-    try {
-      const strip = await toStorageUrl(newMemory.stripImage || newMemory.stripUrl);
-      const audio = await toStorageUrl(newMemory.audioUrl);
-      const row = memoryToRow({ ...newMemory, stripImage: strip, stripUrl: strip, audioUrl: audio });
-
-      const { error } = await client.from('memories').insert(row);
-
-      // 23505 = duplicate id: this memory was already saved by an earlier retry
-      if (error && error.code !== '23505') {
-        console.error('[Sync] Supabase insert error:', error);
-        return { success: false, isCloudSaved: false, error: error.message, code: error.code };
-      }
-
-      return { success: true, isCloudSaved: true };
-    } catch (e) {
-      console.error('[Sync] Supabase save exception:', e);
-      return { success: false, isCloudSaved: false, error: e.message };
-    }
+  if (!getSupabaseClient()) {
+    return {
+      success: true,
+      isCloudSaved: false,
+      warning: 'Foto tersimpan secara lokal di perangkat ini. Set VITE_SUPABASE_URL dan VITE_SUPABASE_ANON_KEY agar foto tersinkronisasi ke seluruh HP tamu.'
+    };
   }
-
-  return {
-    success: true,
-    isCloudSaved: false,
-    warning: 'Foto tersimpan secara lokal di perangkat ini. Set VITE_SUPABASE_URL dan VITE_SUPABASE_ANON_KEY agar foto tersinkronisasi ke seluruh HP tamu.'
-  };
+  return uploadOnce(newMemory);
 }
 
+async function uploadToCloud(memory) {
+  try {
+    const strip = await toStorageUrl(memory.stripImage || memory.stripUrl);
+    const audio = await toStorageUrl(memory.audioUrl);
+    const row = memoryToRow({ ...memory, stripImage: strip, stripUrl: strip, audioUrl: audio });
+
+    const { error } = await getSupabaseClient().from('memories').insert(row);
+
+    // 23505 = duplicate id: this memory was already saved by an earlier retry
+    if (error && error.code !== '23505') {
+      console.error('[Sync] Supabase insert error:', error);
+      return { success: false, isCloudSaved: false, error: error.message, code: error.code };
+    }
+
+    saveMemoryDB({ ...memory, pendingUpload: false }, false).catch(() => {});
+    return { success: true, isCloudSaved: true };
+  } catch (e) {
+    console.error('[Sync] Supabase save exception:', e);
+    return { success: false, isCloudSaved: false, error: e.message };
+  }
+}
+
+// One upload per memory at a time: a sync can retry a pending photo while its first upload still runs
+const inFlight = new Map();
+function uploadOnce(memory) {
+  if (!inFlight.has(memory.id)) {
+    inFlight.set(memory.id, uploadToCloud(memory).finally(() => inFlight.delete(memory.id)));
+  }
+  return inFlight.get(memory.id);
+}
 // ─────────────────────────────────────────────────────────────────────────────
 // Like / unlike — atomic on the server (set_like RPC), so concurrent likes never overwrite each other
 // ─────────────────────────────────────────────────────────────────────────────
@@ -378,13 +405,28 @@ export async function saveSettingsOnline(patch) {
   return { success: true };
 }
 
+// Fallback when Realtime is down (blocked network, or over the plan's connection limit):
+// fetch only rows newer than what we have, so hundreds of polling phones stay cheap.
+export async function fetchNewMemories(since) {
+  const client = getSupabaseClient();
+  if (!client) return [];
+  let query = client.from('memories').select(MEMORY_COLUMNS).order('created_at', { ascending: false }).limit(50);
+  if (since) query = query.gt('created_at', since);
+  const { data, error } = await query;
+  if (error) {
+    console.warn('[Sync] Poll error:', error.message);
+    return [];
+  }
+  return data.map(rowToMemory).filter(Boolean);
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Supabase Realtime — instant multi-device sync
 // ─────────────────────────────────────────────────────────────────────────────
 export function subscribeToMemories(callbacks = {}) {
   let activeChannel = null;
 
-  const { onNewMemory, onUpdateMemory, onDeleteMemory } = typeof callbacks === 'function'
+  const { onNewMemory, onUpdateMemory, onDeleteMemory, onStatus } = typeof callbacks === 'function'
     ? { onNewMemory: callbacks }
     : callbacks;
 
@@ -502,6 +544,7 @@ export function subscribeToMemories(callbacks = {}) {
         }
       )
       .subscribe((status) => {
+        onStatus?.(status);
         if (status === 'SUBSCRIBED') {
           console.log('[Realtime] Connected to Supabase real-time channel ✓');
         } else {

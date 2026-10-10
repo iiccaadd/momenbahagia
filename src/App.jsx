@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import GuestLanding from './components/GuestLanding';
 import AdminPanel from './components/AdminPanel';
 import AdminLogin from './components/AdminLogin';
@@ -14,6 +14,7 @@ import {
   clearAllMemoriesOnline,
   pinMemoryOnline,
   fetchSettingsOnline,
+  fetchNewMemories,
   subscribeToMemories
 } from './services/cloudSync';
 import { isDummyMemory } from './services/dbStorage';
@@ -42,6 +43,8 @@ export default function App() {
   });
 
   const [memories, setMemories] = useState([]);
+  const memoriesRef = useRef(memories);
+  memoriesRef.current = memories;
 
   const [likedMemoryIds, setLikedMemoryIds] = useState(() => {
     try {
@@ -178,9 +181,18 @@ export default function App() {
     // Immediate initial sync
     syncData();
 
-    // Realtime delivers changes instantly; this poll only covers a dropped connection.
-    // Every guest phone runs it, so keep it slow.
-    const interval = setInterval(syncData, 60000);
+    // Realtime delivers changes instantly. Only while it is down (blocked network, or more phones
+    // than the plan's Realtime connection limit) poll for rows newer than the newest we have.
+    let realtimeUp = false;
+    const pollNew = async () => {
+      if (realtimeUp) return;
+      const since = memoriesRef.current
+        .filter((m) => !m.pendingUpload && m.createdAt)
+        .reduce((max, m) => (!max || new Date(m.createdAt) > new Date(max) ? m.createdAt : max), null);
+      const fresh = (await fetchNewMemories(since)).filter((m) => !isDummyMemory(m));
+      if (fresh.length) setMemories((prev) => mergeMemories(prev, fresh));
+    };
+    const interval = setInterval(pollNew, 30000);
 
     // Sync on tab refocus
     const onFocus = () => syncData();
@@ -203,6 +215,7 @@ export default function App() {
 
     // Supabase Realtime — cross-device instant sync
     const unsubscribeRealtime = subscribeToMemories({
+      onStatus: (status) => { realtimeUp = status === 'SUBSCRIBED'; },
       onNewMemory: (newMem) => {
         if (!newMem || isDummyMemory(newMem)) return;
         console.log('[Realtime] New memory from another device:', newMem.guestName);

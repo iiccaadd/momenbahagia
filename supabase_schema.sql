@@ -69,13 +69,15 @@ $$;
 -- 4. Row Level Security tabel memories
 ALTER TABLE public.memories ENABLE ROW LEVEL SECURITY;
 
--- Hapus policy lama agar tidak duplikat saat dijalankan berulang kali
-DROP POLICY IF EXISTS "Allow public read access" ON public.memories;
-DROP POLICY IF EXISTS "Allow public insert access" ON public.memories;
-DROP POLICY IF EXISTS "Allow public update access" ON public.memories;
-DROP POLICY IF EXISTS "Allow public delete access" ON public.memories;
-DROP POLICY IF EXISTS "Admin update access" ON public.memories;
-DROP POLICY IF EXISTS "Admin delete access" ON public.memories;
+-- Hapus SEMUA policy lama apa pun namanya: policy digabung dengan OR, jadi satu policy lama
+-- "izinkan semua" (mis. dibuat lewat dashboard) membuat tamu tetap bisa menghapus.
+DO $$
+DECLARE p RECORD;
+BEGIN
+  FOR p IN SELECT policyname FROM pg_policies WHERE schemaname = 'public' AND tablename = 'memories' LOOP
+    EXECUTE format('DROP POLICY %I ON public.memories', p.policyname);
+  END LOOP;
+END $$;
 
 -- Tamu dan admin dapat melihat seluruh kenangan foto
 CREATE POLICY "Allow public read access" ON public.memories
@@ -133,19 +135,26 @@ CREATE POLICY "Media admin all" ON storage.objects FOR ALL TO authenticated
   WITH CHECK (bucket_id = 'media' AND public.is_admin());
 
 -- 5. Aktifkan Supabase Realtime agar foto langsung muncul di HP lain & Layar Resepsi tanpa refresh
+-- (Tanpa EXCEPTION yang menelan error: kalau gagal, harus terlihat.)
 DO $$
 BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_publication WHERE pubname = 'supabase_realtime') THEN
+    CREATE PUBLICATION supabase_realtime;
+  END IF;
   IF NOT EXISTS (
-    SELECT 1 FROM pg_publication_tables 
-    WHERE pubname = 'supabase_realtime' AND tablename = 'memories'
+    SELECT 1 FROM pg_publication_tables
+    WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'memories'
   ) THEN
     ALTER PUBLICATION supabase_realtime ADD TABLE public.memories;
   END IF;
-EXCEPTION
-  WHEN OTHERS THEN
-    NULL; -- Abaikan jika publikasi sudah ada atau izin superuser berbeda
 END $$;
 
 -- 6. Aktifkan REPLICA IDENTITY FULL agar seluruh kolom (termasuk strip_image) selalu disertakan di Supabase Realtime
 ALTER TABLE public.memories REPLICA IDENTITY FULL;
+
+-- 7. Cek hasil: harus tampil 4 policy memories + baris realtime = true
+SELECT 'policy' AS jenis, policyname AS nama, cmd AS aksi FROM pg_policies WHERE schemaname = 'public' AND tablename = 'memories'
+UNION ALL
+SELECT 'realtime', 'memories terdaftar', (EXISTS (
+  SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'memories'))::text;
 
