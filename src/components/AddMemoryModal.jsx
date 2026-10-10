@@ -20,7 +20,6 @@ import TemplateSelector from './TemplateSelector';
 import PhotoCaptureStep from './PhotoCaptureStep';
 import { renderPhotostrip, compressBase64Image } from '../utils/canvasExport';
 import { useNotify } from '../context/NotificationContext';
-import { saveMemoryOnline } from '../services/cloudSync';
 import {
   getStoredUploadCount,
   getStoredLastUploadTime,
@@ -233,14 +232,7 @@ export default function AddMemoryModal({
         isPinned: false
       };
 
-      // Direct save to local storage & cloud to guarantee persistence
-      try {
-        await saveMemoryOnline(memoryData);
-      } catch (saveErr) {
-        console.warn('[AddModal] Direct save warning:', saveErr);
-      }
-
-      // Pass to onMemorySubmitted which saves and updates App.jsx memories state
+      // onMemorySubmitted (App.jsx) saves to IndexedDB + Supabase + Drive backup; saving here too uploaded every photo twice
       if (onMemorySubmitted) {
         await onMemorySubmitted(memoryData);
       }
