@@ -5,9 +5,14 @@ const env = import.meta.env || {};
 
 // Kredensial hanya dari env build (VITE_SUPABASE_*), tidak dari URL atau localStorage,
 // supaya link palsu tidak bisa mengarahkan foto tamu ke database lain.
+// Public by design (role "anon", already shipped to every guest browser; RLS protects the data).
+// Fallback so a build without Vercel env vars (preview, local dev) still reaches the live project.
+const DEFAULT_SUPABASE_URL = 'https://gfbemoenmdzsvpacrpby.supabase.co';
+const DEFAULT_SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdmYmVtb2VubWR6c3ZwYWNycGJ5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg1MzAwNTYsImV4cCI6MjEwNDEwNjA1Nn0.dIinWd9Okj0NMbea3dDYM5ZPGToQR2Q9GGbrf3_aJwo';
+
 export function getSupabaseCredentials() {
-  const url = (env.VITE_SUPABASE_URL || '').trim();
-  const key = (env.VITE_SUPABASE_ANON_KEY || '').trim();
+  const url = (env.VITE_SUPABASE_URL || DEFAULT_SUPABASE_URL).trim();
+  const key = (env.VITE_SUPABASE_ANON_KEY || DEFAULT_SUPABASE_ANON_KEY).trim();
   const isConfigured = url.startsWith('http') && !url.includes('your-project-id') && !!key && !key.includes('your-anon-key');
   return { url, key, isConfigured, source: isConfigured ? 'env' : 'none' };
 }
