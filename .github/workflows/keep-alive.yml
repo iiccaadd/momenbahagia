@@ -1,0 +1,18 @@
+# Supabase free projects pause after 7 days without activity; a small query keeps it awake.
+# Runs twice a week so one delayed/skipped GitHub run never reaches 7 idle days.
+name: Keep Supabase awake
+
+on:
+  schedule:
+    - cron: '0 1 * * 1,4' # Monday & Thursday 01:00 UTC (08:00 WIB)
+  workflow_dispatch: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Query Supabase through the live site
+        run: |
+          KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdmYmVtb2VubWR6c3ZwYWNycGJ5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg1MzAwNTYsImV4cCI6MjEwNDEwNjA1Nn0.dIinWd9Okj0NMbea3dDYM5ZPGToQR2Q9GGbrf3_aJwo' # public anon key, same as in the app
+          curl -fsS -m 30 -H "apikey: $KEY" -H "Authorization: Bearer $KEY" \
+            "https://gfbemoenmdzsvpacrpby.supabase.co/rest/v1/memories?select=id&limit=1"
