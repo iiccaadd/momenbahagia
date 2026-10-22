@@ -46,8 +46,36 @@ export default function GuestLanding({
     bgmTitle: "PARAMORE-The_Only_Exception_.mp3",
   };
 
+  const pausedForVoice = useRef(false);
+
+  // Pause the music while any other audio (guest voice notes) plays, then resume it.
+  // Media events do not bubble, so listen in the capture phase for every <audio> on the page.
+  useEffect(() => {
+    const onPlay = (e) => {
+      const bgm = audioRef.current;
+      if (e.target === bgm || !bgm || bgm.paused) return;
+      bgm.pause();
+      pausedForVoice.current = true;
+    };
+    const onStop = (e) => {
+      const bgm = audioRef.current;
+      if (e.target === bgm || !pausedForVoice.current) return;
+      pausedForVoice.current = false;
+      bgm?.play().catch(() => {});
+    };
+    document.addEventListener('play', onPlay, true);
+    document.addEventListener('pause', onStop, true);
+    document.addEventListener('ended', onStop, true);
+    return () => {
+      document.removeEventListener('play', onPlay, true);
+      document.removeEventListener('pause', onStop, true);
+      document.removeEventListener('ended', onStop, true);
+    };
+  }, []);
+
   const toggleBgm = () => {
     if (!audioRef.current) return;
+    pausedForVoice.current = false; // the guest chose; do not auto-resume over that
     if (isPlayingBgm) {
       audioRef.current.pause();
       setIsPlayingBgm(false);
