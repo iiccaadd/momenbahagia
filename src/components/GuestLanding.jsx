@@ -26,7 +26,7 @@ export default function GuestLanding({
     formattedCooldown,
     remainingUploads,
     recordUpload,
-  } = useUploadLimit();
+  } = useUploadLimit(weddingSettings?.couple?.quotaResetAt);
   const [isIntroOpen, setIsIntroOpen] = useState(true);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isExploreOpen, setIsExploreOpen] = useState(false);

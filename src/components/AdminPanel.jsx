@@ -739,6 +739,30 @@ export default function AdminPanel({
                   Reset Kuota Upload (Device Ini)
                 </button>
 
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const confirmed = await notify.confirm(
+                      'Semua tamu akan mendapat kuota upload 3x baru dan jeda 5 menit dihapus. Perangkat yang sedang membuka situs menerimanya saat halaman dibuka ulang. Lanjutkan?',
+                      'Reset Kuota Semua Device',
+                      'Ya, Reset Semua',
+                      'Batal'
+                    );
+                    if (!confirmed) return;
+                    try {
+                      await saveCouple({ quotaResetAt: Date.now() });
+                      notify.success('Kuota upload semua device berhasil di-reset.');
+                    } catch (err) {
+                      notify.error(`Gagal mereset kuota: ${err.message}`);
+                    }
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 text-xs font-semibold border border-amber-200 transition-all shadow-xs"
+                  title="Reset kuota upload dan cooldown di semua perangkat tamu"
+                >
+                  <RefreshCw className="w-3.5 h-3.5 text-amber-600" />
+                  Reset Kuota Upload (Semua Device)
+                </button>
+
                 {memories.length > 0 && (
                   <button
                     type="button"

@@ -5,6 +5,7 @@ export const GUEST_COOLDOWN_SECONDS = 5 * 60; // 5 menit = 300 detik
 
 const STORAGE_KEY_COUNT = 'wedding_guest_upload_count';
 const STORAGE_KEY_LAST_TIME = 'wedding_guest_last_upload_time';
+const STORAGE_KEY_RESET_SEEN = 'wedding_guest_quota_reset_seen';
 
 export function getStoredUploadCount() {
   try {
@@ -39,7 +40,8 @@ export function formatTimeMMSS(totalSeconds) {
   return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
 }
 
-export function useUploadLimit() {
+// resetAt: timestamp set by the admin (couple.quotaResetAt); a newer value than this device has seen clears its quota
+export function useUploadLimit(resetAt) {
   const [uploadCount, setUploadCount] = useState(() => getStoredUploadCount());
   const [lastUploadTime, setLastUploadTime] = useState(() => getStoredLastUploadTime());
   const [cooldownRemaining, setCooldownRemaining] = useState(() =>
@@ -135,6 +137,19 @@ export function useUploadLimit() {
       return { newCount: uploadCount + 1, isLimitReached: false };
     }
   }, [uploadCount]);
+
+  // Admin "reset all devices": runs on first load and whenever settings bring a newer resetAt
+  useEffect(() => {
+    if (!resetAt) return;
+    try {
+      if (resetAt > Number(localStorage.getItem(STORAGE_KEY_RESET_SEEN) || 0)) {
+        localStorage.removeItem(STORAGE_KEY_COUNT);
+        localStorage.removeItem(STORAGE_KEY_LAST_TIME);
+        localStorage.setItem(STORAGE_KEY_RESET_SEEN, String(resetAt));
+        syncFromStorage();
+      }
+    } catch (e) {}
+  }, [resetAt, syncFromStorage]);
 
   // Reset upload limit manually
   const resetUploadLimit = useCallback(() => {
