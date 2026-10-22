@@ -140,7 +140,7 @@ export default function AddMemoryModal({
 
   const notify = useNotify();
 
-  const handleNextStep = () => {
+  const handleNextStep = async () => {
     if (currentStep === 1) {
       if (!guestName.trim()) {
         notify.warning('Mohon masukkan nama Anda terlebih dahulu sebelum melanjutkan.', 'Nama Diperlukan');
@@ -158,6 +158,15 @@ export default function AddMemoryModal({
       if (filledPhotos.length === 0) {
         notify.warning('Mohon ambil foto dengan kamera atau unggah minimal 1 foto dari galeri.', 'Foto Diperlukan');
         return;
+      }
+      if (!audioData) {
+        const proceed = await notify.confirm(
+          'Kamu belum merekam pesan suara untuk pengantin. Lanjut tanpa pesan suara?',
+          'Lanjut Tanpa Pesan Suara?',
+          'Ya, Lanjut',
+          'Rekam Dulu'
+        );
+        if (!proceed) return;
       }
       setCurrentStep(4);
       generateStrip();
