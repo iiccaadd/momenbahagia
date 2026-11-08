@@ -119,7 +119,7 @@ export default function GuestLanding({
           ref={audioRef}
           src={couple.bgmUrl}
           loop
-          preload="auto"
+          preload="none"
         />
       )}
 

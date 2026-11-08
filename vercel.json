@@ -5,5 +5,15 @@
   "rewrites": [
     { "source": "/sb/:path*", "destination": "https://gfbemoenmdzsvpacrpby.supabase.co/:path*" },
     { "source": "/(.*)", "destination": "/index.html" }
+  ],
+  "headers": [
+    {
+      "source": "/sb/storage/v1/object/public/(.*)",
+      "headers": [{ "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }]
+    },
+    {
+      "source": "/uploads/(.*)",
+      "headers": [{ "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }]
+    }
   ]
 }
